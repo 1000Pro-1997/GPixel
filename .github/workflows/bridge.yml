@@ -54,10 +54,10 @@ jobs:
           cat SHA256SUMS.txt
 
           cat > notes.md <<EOF
-          Gpixel has been renamed to **Chickxel**. This release moves old Gpixel builds to Chickxel $TAG through Help > Check for Updates.
+          Gpixel has been renamed to **Chickxel**. This release moves old Gpixel builds to Chickxel ${TAG} through Help > Check for Updates.
           New repository: https://github.com/1000Pro-1997/Chickxel
 
-          Gpixel은 이름이 **Chickxel**로 바뀌었습니다. 예전 Gpixel에서 도움말 > 업데이트 확인을 누르면 Chickxel $TAG로 바뀝니다.
+          Gpixel은 이름이 **Chickxel**로 바뀌었습니다. 예전 Gpixel에서 도움말 > 업데이트 확인을 누르면 Chickxel ${TAG}로 바뀝니다.
           새 저장소: https://github.com/1000Pro-1997/Chickxel
           EOF
           gh release create "$TAG" Gpixel-windows-x64.zip Gpixel-macos-arm64.zip Gpixel-macos-x64.zip SHA256SUMS.txt CHANGELOG.md CHANGELOG.ko.md \
