@@ -1,0 +1,64 @@
+# 예전 Gpixel 앱(업데이트를 1000Pro-1997/GPixel에서 확인)을 Chickxel로 잇는 릴리스를 만든다.
+# Chickxel 릴리스 파일을 받아 체크섬을 확인하고, 예전 앱 설치기가 찾는 이름으로 다시 묶는다:
+#   Gpixel-windows-x64.zip  → 폴더 안 Gpixel.exe(= Chickxel.exe)
+#   Gpixel-macos-*.zip      → Gpixel.app(Contents/Info.plist, Contents/MacOS/Gpixel.App이 있어야 함) — 다시 임시 서명
+name: bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Chickxel release tag (vX.Y.Z)
+        required: true
+        default: v1.14.62
+
+permissions:
+  contents: write
+
+jobs:
+  bridge:
+    runs-on: macos-latest
+    steps:
+      - name: Repackage Chickxel release under Gpixel names
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir in work out
+          cd in
+          gh release download "$TAG" -R 1000Pro-1997/Chickxel
+          shasum -a 256 -c SHA256SUMS.txt
+
+          # Windows: 예전 설치기는 풀린 폴더에서 Gpixel.exe를 찾아 실행 중인 exe 자리에 복사한다
+          unzip -q Chickxel-windows-x64.zip -d win
+          mkdir -p ../work/Gpixel-windows-x64
+          cp win/Chickxel-windows-x64/Chickxel.exe ../work/Gpixel-windows-x64/Gpixel.exe
+          (cd ../work && zip -qr ../out/Gpixel-windows-x64.zip Gpixel-windows-x64)
+
+          # macOS: 예전 설치기는 Gpixel.app/Contents/Info.plist와 Contents/MacOS/Gpixel.App이 있는지 보고 .app을 통째로 바꾼다.
+          # 실행 파일은 Info.plist가 가리키는 Chickxel.App 그대로, Gpixel.App은 확인용 사본
+          for arch in arm64 x64; do
+            ditto -x -k "Chickxel-macos-$arch.zip" "mac-$arch"
+            mv "mac-$arch/Chickxel.app" "mac-$arch/Gpixel.app"
+            cp "mac-$arch/Gpixel.app/Contents/MacOS/Chickxel.App" "mac-$arch/Gpixel.app/Contents/MacOS/Gpixel.App"
+            codesign --force --deep --sign - "mac-$arch/Gpixel.app"
+            codesign --verify --deep --strict "mac-$arch/Gpixel.app"
+            ditto -c -k --keepParent "mac-$arch/Gpixel.app" "../out/Gpixel-macos-$arch.zip"
+          done
+
+          # 업데이트 창의 바뀐 점은 릴리스에 함께 올린 CHANGELOG에서 읽는다
+          cp CHANGELOG.md CHANGELOG.ko.md ../out/
+          cd ../out
+          shasum -a 256 *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+          cat > notes.md <<EOF
+          Gpixel has been renamed to **Chickxel**. This release moves old Gpixel builds to Chickxel $TAG through Help > Check for Updates.
+          New repository: https://github.com/1000Pro-1997/Chickxel
+
+          Gpixel은 이름이 **Chickxel**로 바뀌었습니다. 예전 Gpixel에서 도움말 > 업데이트 확인을 누르면 Chickxel $TAG로 바뀝니다.
+          새 저장소: https://github.com/1000Pro-1997/Chickxel
+          EOF
+          gh release create "$TAG" Gpixel-windows-x64.zip Gpixel-macos-arm64.zip Gpixel-macos-x64.zip SHA256SUMS.txt CHANGELOG.md CHANGELOG.ko.md \
+            -R "$GITHUB_REPOSITORY" --title "Gpixel to Chickxel $TAG" --notes-file notes.md
