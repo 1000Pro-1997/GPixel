@@ -23,17 +23,22 @@ internal static class AppearRender
                 FadeRender.Apply(image, v);
                 break;
             case AppearStyle.Dither:
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                        if ((Bayer.Threshold4(x - source.X, y - source.Y) + 0.5) / 16 >= v) px[y * w + x] = Color32.Transparent;
+                EffectParallel.For(0, h, w, y =>
+                {
+                    var row = px.AsSpan(y * w, w);
+                    int left = source.X, by = y - source.Y;
+                    for (int x = 0; x < row.Length; x++)
+                        if ((Bayer.Threshold4(x - left, by) + 0.5) / 16 >= v) row[x] = Color32.Transparent;
+                });
                 break;
             case AppearStyle.Scatter:
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                    {
-                        int i = y * w + x;
-                        if (px[i].A != 0 && LayerEffects.Random(e.Seed, x - source.X, y - source.Y, 31) >= v) px[i] = Color32.Transparent;
-                    }
+                EffectParallel.For(0, h, w, y =>
+                {
+                    var row = px.AsSpan(y * w, w);
+                    int seed = e.Seed, left = source.X, by = y - source.Y;
+                    for (int x = 0; x < row.Length; x++)
+                        if (row[x].A != 0 && LayerEffects.Random(seed, x - left, by, 31) >= v) row[x] = Color32.Transparent;
+                });
                 break;
             default:
                 Wipe(image, e, v, source);
@@ -54,11 +59,12 @@ internal static class AppearRender
         double c = v * (length + edge);
         int w = image.Width;
         var px = image.Pixels;
-        for (int y = b.Top; y < b.Bottom; y++)
+        EffectParallel.For(b.Top, b.Bottom, b.Width, y =>
+        {
+            var row = px.AsSpan(y * w, w);
             for (int x = b.Left; x < b.Right; x++)
             {
-                int i = y * w + x;
-                if (px[i].A == 0) continue;
+                if (row[x].A == 0) continue;
                 int p = e.From switch
                 {
                     WipeDirection.Top => y - b.Top,
@@ -74,7 +80,8 @@ internal static class AppearRender
                     double level = edge == 1 ? 0.5 : inside > 1 ? 0.75 : 0.25;
                     if (Bayer.Threshold2(x - source.X, y - source.Y) + 0.5 < level * 4) continue;
                 }
-                px[i] = Color32.Transparent;
+                row[x] = Color32.Transparent;
             }
+        });
     }
 }

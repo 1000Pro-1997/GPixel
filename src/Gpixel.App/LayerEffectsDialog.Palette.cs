@@ -1,22 +1,29 @@
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
+using Gpixel.Core.Assets;
 using Gpixel.Core.IO;
+using Gpixel.Core.Scripting;
 
 namespace Gpixel.App;
 
 /// <summary>
 /// 효과 창 왼쪽 끝의 효과 종류 칸: 종류마다 미리보기 그림(지금 프레임 그림에 기본 설정으로 입힌 모습 — 움직이는 효과는 돌려 보임) + 이름 상자.
 /// 두 번 누르거나 효과 목록으로 끌어 놓으면 "추가 범위"로 추가한다(끌어 놓으면 놓은 자리에).
+/// 커스텀 탭은 에셋 카탈로그의 효과 레시피와 스크립트 효과(개인 에셋 + 켜진 패키지)를 보이고, 저장·이름 바꾸기·삭제는 개인 에셋 저장소에 한다.
+/// 레시피를 넣으면 효과 값과 스크립트 원문을 복사하므로 나중에 레시피를 지우거나 꺼도 이미 넣은 효과는 바뀌지 않는다.
+/// 스크립트가 든 상자는 모서리에 코드 표시를 그리고, 실행을 허용하지 않은 스크립트가 있으면 풍선에 알린다(넣어도 허용 전에는 그리지 않음).
 /// </summary>
 public sealed partial class LayerEffectsDialog
 {
-    private const int TileWidth = 88, TileHeight = 96, ThumbSteps = 12, ThumbHold = 4, ThumbMaxSize = 128;
+    private const int TileWidth = 88, TileHeight = 96, ThumbSteps = AssetPreview.Steps, ThumbHold = 4, ThumbMaxSize = 128;
     /// <summary>효과 종류 칸의 한 줄 상자 수.</summary>
     private const int PaletteColumns = 4;
 
     private readonly List<EffectTile> _tiles = new();
-    private readonly List<EffectPreset> _presets = new();
+    /// <summary>커스텀 탭의 에셋(카탈로그의 고를 수 있는 효과 레시피·스크립트 효과).</summary>
+    private readonly List<AssetEntry> _recipes = new();
     private readonly WrapPanel _customWrap = new() { Orientation = Orientation.Horizontal };
     private readonly TextBlock _customEmpty = Ui.Label("");
     private readonly DispatcherTimer _thumbTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
@@ -26,40 +33,30 @@ public sealed partial class LayerEffectsDialog
     private Avalonia.Point _pressPoint;
     private bool _tileDragging;
     private Button? _savePreset;
-
-    /// <summary>사용자 정의 효과 파일(효과 창과 AI 도구가 같이 읽음).</summary>
-    internal static string PresetPath => Path.Combine(Platform.AppDataDirectory, "Gpixel", EffectPresets.FileName);
+    private Action? _onAssetsChanged;
 
     private Control BuildPalette(string? motionTip)
     {
         _thumbSource = ThumbSource();
         var builtInWrap = new WrapPanel { Orientation = Orientation.Horizontal };
-        for (int kind = 0; kind < KindTable.Length; kind++)
-        {
-            var effects = new LayerEffect[] { Create(kind) };
-            var tile = new EffectTile(KindTable[kind].Name, effects);
-            ToolTip.SetTip(tile, $"{Kinds[kind]}\n{DescriptionOf(kind)}" + (tile.Animated ? UiStrings.S_LayerEffectsDialog_Palette_BuildPalette_164E2EA098 : "")
-                                 + (tile.Animated && motionTip is not null ? " " + motionTip : ""));
-            AddPaletteTile(tile, builtInWrap);
-        }
-
-        string? loadError = null;
-        try
-        {
-            _presets.AddRange(EffectPresets.Load(PresetPath));
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            loadError = string.Format(global::System.Globalization.CultureInfo.CurrentCulture, UiStrings.EffectPreset_LoadError, ex.Message);
-        }
+        ReloadBuiltInPalette(builtInWrap, motionTip);
 
         _savePreset = Ui.Button(VectorIcon.Layers, UiStrings.EffectPreset_SaveGroup, (_, _) => SavePresetGroup());
         _savePreset.HorizontalAlignment = HorizontalAlignment.Stretch;
         ToolTip.SetTip(_savePreset, UiStrings.EffectPreset_SaveGroupTip);
-        _customEmpty.Text = loadError ?? UiStrings.EffectPreset_Empty;
+        var manager = Ui.Button(VectorIcon.Package, UiStrings.Assets_ManagerButton, (_, _) => AssetManagerWindow.Open(this, AssetKinds.EffectRecipe));
+        manager.HorizontalAlignment = HorizontalAlignment.Stretch;
+        ToolTip.SetTip(manager, UiStrings.Assets_ManagerTip);
         _customEmpty.TextWrapping = TextWrapping.Wrap;
         _customEmpty.MaxWidth = (TileWidth + 4) * PaletteColumns;
-        RebuildCustomPalette();
+        ReloadRecipes();
+        // 에셋 관리자에서 켜고 끄거나 지우면 두 탭을 다시 만든다(이미 넣은 효과는 값 사본이라 그대로).
+        _onAssetsChanged = () => Dispatcher.UIThread.Post(() =>
+        {
+            ReloadBuiltInPalette(builtInWrap, motionTip);
+            ReloadRecipes();
+        });
+        AppAssets.Changed += _onAssetsChanged;
 
         _thumbTimer.Tick += (_, _) =>
         {
@@ -78,14 +75,33 @@ public sealed partial class LayerEffectsDialog
             Content = content,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
         };
-        var customHead = Ui.Stack(_savePreset, Ui.Label(UiStrings.EffectPreset_CustomHelp), _customEmpty);
+        var customHead = Ui.Stack(_savePreset, manager, Ui.Label(UiStrings.EffectPreset_CustomHelp), _customEmpty);
         customHead.Margin = new Thickness(0);
         DockPanel.SetDock(customHead, Dock.Top);
         var custom = new DockPanel { Children = { customHead, Scroll(_customWrap) } };
         var tabs = new TabControl { Width = width, Height = 590 };
-        tabs.Items.Add(new TabItem { Header = UiStrings.EffectPreset_BuiltInTab, Content = Scroll(builtInWrap) });
+        tabs.Items.Add(new TabItem { Header = UiStrings.EffectPreset_BuiltInTab, Content = Scroll(Ui.Stack(builtInWrap, BuildScriptSection())) });
         tabs.Items.Add(new TabItem { Header = UiStrings.EffectPreset_CustomTab, Content = custom });
         return Ui.Stack(Ui.Row(Ui.Label(UiStrings.S_LayerEffectsDialog_Palette_BuildPalette_F3EEB77504, bold: true), Ui.InfoBadge(UiStrings.S_LayerEffectsDialog_Palette_BuildPalette_938E8B22DD)), tabs);
+    }
+
+    private void ReloadBuiltInPalette(WrapPanel builtInWrap, string? motionTip)
+    {
+        foreach (var tile in _tiles.Where(tile => tile.Entry is null).ToArray())
+        {
+            if (_pressedTile == tile) EndTileDrag();
+            tile.Dispose();
+            _tiles.Remove(tile);
+        }
+        builtInWrap.Children.Clear();
+        foreach (var definition in AppAssets.Catalog.BuiltInEffects)
+        {
+            var ui = UiOf(definition);
+            var tile = new EffectTile(ui.Name, [definition.Create()]);
+            ToolTip.SetTip(tile, $"{ui.Name}\n{ui.Description}" + (tile.Animated ? UiStrings.S_LayerEffectsDialog_Palette_BuildPalette_164E2EA098 : "")
+                                 + (tile.Animated && motionTip is not null ? " " + motionTip : ""));
+            AddPaletteTile(tile, builtInWrap);
+        }
     }
 
     private void AddPaletteTile(EffectTile tile, Panel panel)
@@ -95,112 +111,117 @@ public sealed partial class LayerEffectsDialog
         tile.Margin = new Thickness(2);
         tile.Show(0, RenderThumb);
         AttachTileInput(tile);
-        if (tile.Preset is { } preset)
-            PopupMenus.Attach(tile, () => PresetMenu(preset));
+        if (tile.Entry is { } entry)
+            PopupMenus.Attach(tile, () => RecipeMenu(entry));
         _tiles.Add(tile);
         panel.Children.Add(tile);
     }
 
+    /// <summary>카탈로그에서 레시피를 다시 읽어 커스텀 탭을 다시 만든다. 개인 에셋을 읽지 못했으면 그 까닭을 보인다.</summary>
+    private void ReloadRecipes()
+    {
+        _recipes.Clear();
+        _recipes.AddRange(AppAssets.Catalog.EffectTemplates);
+        _customEmpty.Text = AppAssets.Store.PersonalError is { } error
+            ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture, UiStrings.EffectPreset_LoadError, error)
+            : UiStrings.EffectPreset_Empty;
+        RebuildCustomPalette();
+    }
+
     private void RebuildCustomPalette()
     {
-        foreach (var tile in _tiles.Where(tile => tile.Preset is not null).ToArray())
+        foreach (var tile in _tiles.Where(tile => tile.Entry is not null).ToArray())
         {
             tile.Dispose();
             _tiles.Remove(tile);
         }
         _customWrap.Children.Clear();
-        foreach (var preset in _presets)
+        var culture = global::System.Globalization.CultureInfo.CurrentCulture;
+        foreach (var entry in _recipes)
         {
-            var tile = new EffectTile(preset.Name, preset.Effects, preset);
-            ToolTip.SetTip(tile, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
-                UiStrings.EffectPreset_TileTip, preset.Effects.Count));
+            var recipe = entry.EffectTemplate!;
+            var tile = new EffectTile(recipe.Name, recipe.Effects, entry, recipe);
+            string tip = (entry.Script is not null, entry.Origin == AssetOrigin.Personal) switch
+            {
+                (true, true) => UiStrings.EffectPreset_ScriptTileTip,
+                (true, false) => string.Format(culture, UiStrings.EffectPreset_PackageScriptTileTip, entry.PackageName),
+                (false, true) => string.Format(culture, UiStrings.EffectPreset_TileTip, recipe.Effects.Count),
+                (false, false) => string.Format(culture, UiStrings.EffectPreset_PackageTileTip, entry.PackageName, recipe.Effects.Count),
+            };
+            if (entry.ScriptHashes.Any(hash => ScriptLibrary.TrustOf(hash) != ScriptTrust.Trusted))
+                tip += "\n" + string.Format(culture, UiStrings.EffectPreset_ScriptTileNote, recipe.Effects.Count(effect => effect is ScriptEffect));
+            ToolTip.SetTip(tile, tip);
             AddPaletteTile(tile, _customWrap);
         }
-        _customEmpty.IsVisible = _presets.Count == 0;
+        _customEmpty.IsVisible = _recipes.Count == 0 || AppAssets.Store.PersonalError is not null;
     }
 
-    private IEnumerable<object> PresetMenu(EffectPreset preset)
+    private IEnumerable<object> RecipeMenu(AssetEntry entry)
     {
-        MenuItem Item(string text, Action action)
+        MenuItem Item(string text, VectorIcon icon, Action action)
         {
-            var item = new MenuItem { Header = text };
-            item.Click += (_, _) => action();
+            var item = new MenuItem { Header = text, Icon = Ui.Icon(icon, 14) };
+            item.Click += (_, _) => Dispatcher.UIThread.Post(action);
             return item;
         }
+        var show = Item(UiStrings.EffectPreset_ShowInManager, VectorIcon.Package, () => AssetManagerWindow.Open(this, entry.Kind, entry.Id));
+        if (entry.Origin != AssetOrigin.Personal) return [show];
+        // 스크립트 에셋의 이름은 원문의 선언이라 여기서 바꾸지 않는다
+        if (entry.Script is not null) return [Item(UiStrings.EffectPreset_Delete, VectorIcon.Trash, () => DeletePreset(entry)), new Separator(), show];
         return
         [
-            Item(UiStrings.EffectPreset_Rename, () => RenamePreset(preset)),
-            Item(UiStrings.EffectPreset_Delete, () => DeletePreset(preset)),
+            Item(UiStrings.EffectPreset_Rename, VectorIcon.Pencil, () => RenamePreset(entry)),
+            Item(UiStrings.RecipeParams_Edit, VectorIcon.SlidersHorizontal, () => RecipeParametersDialog.Edit(this, entry)),
+            Item(UiStrings.EffectPreset_Delete, VectorIcon.Trash, () => DeletePreset(entry)),
+            new Separator(),
+            show,
         ];
     }
+
+    private IEnumerable<AssetEntry> PersonalRecipes => AppAssets.Catalog.Personal.Where(entry => entry.Recipe is not null);
 
     private void SavePresetGroup()
     {
         if (_effects.Count == 0) return;
+        var personal = PersonalRecipes.ToList();
         var name = InputDialog.Ask(this, UiStrings.EffectPreset_SaveTitle, UiStrings.EffectPreset_NamePrompt,
-            _effects[0].DisplayName, _presets.Select(preset => preset.Name))?.Trim();
+            _effects[0].DisplayName, personal.Select(entry => entry.Name))?.Trim();
         if (string.IsNullOrEmpty(name)) return;
 
-        var preset = EffectPreset.Capture(name, _effects);
-        var next = _presets.ToList();
-        int duplicate = next.FindIndex(item => item.Name == name);
-        if (duplicate >= 0)
-        {
-            if (Ui.Ask(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
-                    UiStrings.EffectPreset_OverwriteQuestion, name), UiStrings.EffectPreset_SaveTitle,
-                    MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
-            next[duplicate] = preset;
-        }
-        else next.Add(preset);
-        PersistPresets(next);
+        var duplicate = personal.FirstOrDefault(entry => entry.Name == name);
+        if (duplicate is not null && Ui.Ask(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
+                UiStrings.EffectPreset_OverwriteQuestion, name), UiStrings.EffectPreset_SaveTitle,
+                MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
+        var recipe = EffectRecipe.Capture(duplicate?.Id ?? "", name, _effects, _project);
+        PersistRecipe(() => AppAssets.Store.SavePersonalRecipe(recipe));
     }
 
-    private void RenamePreset(EffectPreset preset)
+    private void RenamePreset(AssetEntry entry)
     {
-        if (!_presets.Contains(preset)) return;
+        if (entry.Recipe is not { } recipe) return;
+        var personal = PersonalRecipes.ToList();
         var name = InputDialog.Ask(this, UiStrings.EffectPreset_RenameTitle, UiStrings.EffectPreset_NamePrompt,
-            preset.Name, _presets.Select(item => item.Name))?.Trim();
-        if (string.IsNullOrEmpty(name) || name == preset.Name) return;
-        if (_presets.Any(item => item.Name == name))
+            recipe.Name, personal.Select(item => item.Name))?.Trim();
+        if (string.IsNullOrEmpty(name) || name == recipe.Name) return;
+        if (personal.Any(item => item.Name == name))
         {
             Ui.Warn(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
                 UiStrings.EffectPreset_DuplicateName, name), UiStrings.EffectPreset_RenameTitle);
             return;
         }
-        var next = _presets.ToList();
-        next[next.IndexOf(preset)] = EffectPreset.Capture(name, preset.Effects);
-        PersistPresets(next);
+        PersistRecipe(() => AppAssets.Store.SavePersonalRecipe(recipe with { Name = name }));
     }
 
-    private void DeletePreset(EffectPreset preset)
+    private void DeletePreset(AssetEntry entry)
     {
-        if (!_presets.Contains(preset)
-            || Ui.Ask(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
-                    UiStrings.EffectPreset_DeleteQuestion, preset.Name), UiStrings.EffectPreset_Delete,
+        if (Ui.Ask(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
+                UiStrings.EffectPreset_DeleteQuestion, entry.Name), UiStrings.EffectPreset_Delete,
                 MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
-        var next = _presets.ToList();
-        next.Remove(preset);
-        PersistPresets(next);
+        PersistRecipe(() => AppAssets.Store.RemovePersonal(entry.Id));
     }
 
-    private bool PersistPresets(IReadOnlyList<EffectPreset> next)
-    {
-        try
-        {
-            EffectPresets.Save(PresetPath, next);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
-            Ui.Error(this, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
-                UiStrings.EffectPreset_SaveError, ex.Message));
-            return false;
-        }
-        _presets.Clear();
-        _presets.AddRange(next);
-        _customEmpty.Text = UiStrings.EffectPreset_Empty;
-        RebuildCustomPalette();
-        return true;
-    }
+    /// <summary>개인 레시피를 바꾼다. 목록은 저장소 변경 알림(<see cref="ReloadRecipes"/>)으로 다시 만들어진다.</summary>
+    private void PersistRecipe(Action change) => AppAssets.Try(this, change, UiStrings.EffectPreset_SaveError);
 
     /// <summary>미리보기 원본: 지금 프레임 그림(투명 여백을 잘라 냄). 비었거나 너무 크면 작은 견본 그림.</summary>
     private PixelImage ThumbSource()
@@ -211,45 +232,10 @@ public sealed partial class LayerEffectsDialog
         return src.Crop(bounds);
     }
 
-    /// <summary>16×16 공 모양 견본(밝은 면·몸·그늘 세 색).</summary>
-    private static PixelImage SampleSprite()
-    {
-        var img = new PixelImage(16, 16);
-        var body = new Color32(90, 140, 230);
-        var shade = new Color32(50, 80, 170);
-        var light = new Color32(175, 205, 255);
-        for (int y = 0; y < 16; y++)
-            for (int x = 0; x < 16; x++)
-            {
-                double dx = x - 7.5, dy = y - 7.5, d2 = dx * dx + dy * dy;
-                if (d2 > 56) continue;
-                img[x, y] = dx + dy > 5 ? shade : dx + dy < -6 ? light : body;
-            }
-        return img;
-    }
+    private static PixelImage SampleSprite() => AssetPreview.SampleSprite();
 
     /// <summary>효과 묶음을 미리보기 원본에 입힌 그림 — 움직이는 효과는 <see cref="ThumbSteps"/>칸 중 <paramref name="step"/>번째.</summary>
-    private PixelImage RenderThumb(IReadOnlyList<LayerEffect> template, int step)
-    {
-        var src = _thumbSource;
-        Func<int, PixelImage?>? frames = null;
-        if (template.Any(effect => effect is AfterimageEffect))
-        {
-            // 잔상은 앞 프레임과 달라야 보이므로 원본이 한 칸씩 오른쪽으로 가는 것처럼 만든다.
-            var moving = _thumbSource;
-            frames = frame => Shifted(moving, frame);
-            src = Shifted(moving, step);
-        }
-        var animated = LayerEffects.Animate(template, step, ThumbSteps, null, frames);
-        return LayerEffects.Render(src, animated, LayerEffects.Padding(template, src.Width, src.Height)).Image;
-    }
-
-    private static PixelImage Shifted(PixelImage src, int frame)
-    {
-        var img = new PixelImage(src.Width + ThumbSteps, src.Height);
-        img.Blit(src, Math.Clamp(frame, 0, ThumbSteps - 1), 0);
-        return img;
-    }
+    private PixelImage RenderThumb(IReadOnlyList<LayerEffect> template, int step) => AssetPreview.Render(template, _thumbSource, step);
 
     // ───────────── 두 번 누르기·끌어 놓기 ─────────────
 
@@ -260,7 +246,7 @@ public sealed partial class LayerEffectsDialog
             if (!e.GetCurrentPoint(tile).Properties.IsLeftButtonPressed) return;
             if (e.ClickCount == 2)
             {
-                Add(tile.Effects, _effects.Count);
+                Add(tile.Effects, _effects.Count, tile.Template);
                 return;
             }
             _pressedTile = tile;
@@ -283,7 +269,7 @@ public sealed partial class LayerEffectsDialog
             int? at = _tileDragging ? DropIndex(e) : null;
             EndTileDrag();
             e.Pointer.Capture(null);
-            if (at is { } i) Add(tile.Effects, i);
+            if (at is { } i) Add(tile.Effects, i, tile.Template);
         };
         tile.PointerCaptureLost += (_, _) =>
         {
@@ -299,15 +285,15 @@ public sealed partial class LayerEffectsDialog
         ShowDropTarget(false);
     }
 
-    /// <summary>포인터가 효과 목록 위면 넣을 자리(그 위치보다 위에 있는 줄 수), 아니면 null.</summary>
+    /// <summary>포인터가 효과 목록 위면 넣을 효과 번호(그 위치보다 위에 있는 줄 다음 줄의 효과 — 접힌 묶음 앞뒤), 아니면 null.</summary>
     private int? DropIndex(PointerEventArgs e)
     {
         var p = e.GetPosition(_list);
         if (!new Rect(_list.Bounds.Size).Contains(p)) return null;
-        int at = 0;
+        int row = 0;
         foreach (var item in _list.Items.OfType<ListBoxItem>())
-            if (item.TranslatePoint(new Avalonia.Point(0, item.Bounds.Height / 2), _list) is { } mid && mid.Y < p.Y) at++;
-        return at;
+            if (item.TranslatePoint(new Avalonia.Point(0, item.Bounds.Height / 2), _list) is { } mid && mid.Y < p.Y) row++;
+        return EffectIndexAtRow(row);
     }
 
     private void ShowDropTarget(bool on)
@@ -327,6 +313,7 @@ public sealed partial class LayerEffectsDialog
     private void DisposePalette()
     {
         _thumbTimer.Stop();
+        if (_onAssetsChanged is { } changed) AppAssets.Changed -= changed;
         foreach (var tile in _tiles) tile.Dispose();
     }
 
@@ -337,18 +324,22 @@ public sealed partial class LayerEffectsDialog
         private int _shown;
         private bool _hover;
 
-        public EffectTile(string name, IReadOnlyList<LayerEffect> effects, EffectPreset? preset = null)
+        public EffectTile(string name, IReadOnlyList<LayerEffect> effects, AssetEntry? entry = null, EffectRecipe? template = null)
         {
             Title = name;
             Effects = effects;
-            Preset = preset;
+            Entry = entry;
+            Template = template;
             _frames = new WriteableBitmap?[effects.Any(effect => effect is AnimatedEffect || effect.ColorGradients.Values.Any(gradient => gradient.Animated)) ? ThumbSteps : 1];
             Cursor = new Cursor(StandardCursorType.Hand);
         }
 
         public string Title { get; }
         public IReadOnlyList<LayerEffect> Effects { get; }
-        public EffectPreset? Preset { get; }
+        /// <summary>커스텀 탭의 에셋 항목(기본 효과 상자는 null).</summary>
+        public AssetEntry? Entry { get; }
+        /// <summary>넣을 레시피(에셋 항목의 <see cref="AssetEntry.EffectTemplate"/> — 스크립트 원문을 함께 복사함, 기본 효과 상자는 null).</summary>
+        public EffectRecipe? Template { get; }
         public bool Animated => _frames.Length > 1;
         /// <summary><paramref name="step"/>번째 모습을 보인다(처음 볼 때 한 번만 그림).</summary>
         public void Show(int step, Func<IReadOnlyList<LayerEffect>, int, PixelImage> render)
@@ -387,6 +378,9 @@ public sealed partial class LayerEffectsDialog
                 ImageUtil.DrawFitted(g, bmp, src, area, fit >= 1 ? (int)Math.Floor(fit) : 0, checker: true);
             }
             AppTheme.DrawTextIn(g, Title, new Rect(2, b.Height - 21, b.Width - 4, 18), AppTheme.TextBrush, AppTheme.SmallFontSize, center: true);
+            // 스크립트 효과가 든 상자: 오른쪽 위에 코드 표시
+            if (Template?.Scripts.Count > 0)
+                VectorIcons.Draw(g, VectorIcon.Code, new Rect(b.Width - 17, 3, 14, 14), 12, AppTheme.DimTextBrush);
         }
 
         public void Dispose()

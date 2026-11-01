@@ -55,7 +55,19 @@ public static class PngIO
         }
     }
 
-    public static void Save(PixelImage image, Stream stream)
+    public static void Save(PixelImage image, Stream stream) => Save(image, stream, null);
+
+    /// <summary>
+    /// 거른 데이터가 이보다 크면 줄 묶음(<see cref="ChunkBytes"/>)마다 나눠 여러 코어에서 거르고 압축한다. 묶음마다 압축 사전이 새로 시작해
+    /// 파일이 아주 조금 커지는 대신, 큰 시트(8k×8k)를 여러 배 빨리 쓴다. 이보다 작은 그림(셀 대부분)은 한 번에 압축해 예전과 같은 바이트를 쓴다.
+    /// </summary>
+    private const int ParallelMinBytes = 8 << 20;
+
+    /// <summary>나눠 압축할 때 묶음 하나의 거른 데이터 크기(대략).</summary>
+    private const int ChunkBytes = 2 << 20;
+
+    /// <param name="stage">진행(단위: 픽셀, 모두 <c>Width × Height</c>).</param>
+    internal static void Save(PixelImage image, Stream stream, WorkStage? stage)
     {
         int w = image.Width, h = image.Height, stride = w * 4;
         stream.Write(Signature);
@@ -70,38 +82,162 @@ public static class PngIO
         ihdr[12] = 0; // no interlace
         WriteChunk(stream, "IHDR", ihdr);
 
-        using var compressed = new MemoryStream();
-        using (var z = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        int rowBytes = stride + 1;
+        if ((long)rowBytes * h <= ParallelMinBytes)
         {
-            var prev = new byte[stride];
-            var cur = new byte[stride];
-            var candidate = new byte[stride];
-            var best = new byte[stride + 1];
-            var px = image.Pixels;
-            for (int y = 0; y < h; y++)
+            using var compressed = new MemoryStream();
+            using (var z = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
             {
-                for (int x = 0; x < w; x++)
+                var prev = new byte[stride];
+                var cur = new byte[stride];
+                var candidate = new byte[stride];
+                var best = new byte[rowBytes];
+                for (int y = 0; y < h; y++)
                 {
-                    var c = px[y * w + x];
-                    int i = x * 4;
-                    cur[i] = c.R; cur[i + 1] = c.G; cur[i + 2] = c.B; cur[i + 3] = c.A;
+                    FilterRow(image.Pixels, w, y, prev, cur, candidate, best);
+                    z.Write(best);
+                    (prev, cur) = (cur, prev);
+                    stage?.Step(w);
                 }
-                // 행마다 절댓값 합이 가장 작은 필터를 고른다(표준 휴리스틱).
-                long bestScore = long.MaxValue;
-                for (byte f = 0; f <= 4; f++)
-                {
-                    long score = ApplyFilter(f, cur, prev, candidate, 4);
-                    if (score >= bestScore) continue;
-                    bestScore = score;
-                    best[0] = f;
-                    candidate.CopyTo(best, 1);
-                }
-                z.Write(best);
-                (prev, cur) = (cur, prev);
             }
+            WriteChunk(stream, "IDAT", compressed.GetBuffer().AsSpan(0, (int)compressed.Length));
         }
-        WriteChunk(stream, "IDAT", compressed.GetBuffer().AsSpan(0, (int)compressed.Length));
+        else WriteChunk(stream, "IDAT", CompressParallel(image, rowBytes, stage));
         WriteChunk(stream, "IEND", ReadOnlySpan<byte>.Empty);
+    }
+
+    /// <summary>
+    /// 줄 묶음마다 따로 거르고 raw deflate로 압축해 이어 붙인 zlib 데이터. 마지막이 아닌 묶음은 동기 flush(바이트 경계, 끝 블록 아님)에서 끊어
+    /// 이어 붙여도 하나의 deflate 흐름이 되고, Adler-32는 묶음마다 구해 합친다. 필터는 줄마다 그 줄과 윗줄 원본만 보므로 나눠도 같다.
+    /// </summary>
+    private static byte[] CompressParallel(PixelImage image, int rowBytes, WorkStage? stage)
+    {
+        int w = image.Width, h = image.Height, stride = w * 4;
+        int rowsPerChunk = Math.Max(1, ChunkBytes / rowBytes);
+        int chunks = (h + rowsPerChunk - 1) / rowsPerChunk;
+        var parts = new byte[chunks][];
+        var adlers = new uint[chunks];
+        Parallel.For(0, chunks, c =>
+        {
+            int y0 = c * rowsPerChunk, y1 = Math.Min(h, y0 + rowsPerChunk), length = (y1 - y0) * rowBytes;
+            var filtered = System.Buffers.ArrayPool<byte>.Shared.Rent(length);
+            try
+            {
+                var prev = new byte[stride];
+                var cur = new byte[stride];
+                var candidate = new byte[stride];
+                if (y0 > 0) RawRow(image.Pixels, w, y0 - 1, prev);
+                for (int y = y0; y < y1; y++)
+                {
+                    FilterRow(image.Pixels, w, y, prev, cur, candidate, filtered.AsSpan((y - y0) * rowBytes, rowBytes));
+                    (prev, cur) = (cur, prev);
+                }
+                adlers[c] = Adler32(filtered.AsSpan(0, length));
+                using var ms = new MemoryStream(length / 4 + 64);
+                var deflate = new DeflateStream(ms, CompressionLevel.SmallestSize, leaveOpen: true);
+                deflate.Write(filtered, 0, length);
+                if (c < chunks - 1)
+                {
+                    deflate.Flush(); // 동기 flush: 끝 블록 없이 바이트 경계까지 내보낸다
+                    parts[c] = ms.ToArray();
+                    deflate.Dispose(); // 끝 블록은 버린다(이미 복사함)
+                }
+                else
+                {
+                    deflate.Dispose();
+                    parts[c] = ms.ToArray();
+                }
+            }
+            finally
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(filtered);
+            }
+            stage?.Step((long)(y1 - y0) * w);
+        });
+
+        uint adler = adlers[0];
+        for (int c = 1; c < chunks; c++)
+        {
+            int rows = Math.Min(h, (c + 1) * rowsPerChunk) - c * rowsPerChunk;
+            adler = Adler32Combine(adler, adlers[c], (long)rows * rowBytes);
+        }
+        var result = new byte[2 + parts.Sum(p => (long)p.Length) + 4];
+        result[0] = 0x78; // deflate, 32K 창
+        result[1] = 0xDA; // 최대 압축(헤더 검사값 포함)
+        int at = 2;
+        foreach (var p in parts)
+        {
+            p.CopyTo(result, at);
+            at += p.Length;
+        }
+        BinaryPrimitives.WriteUInt32BigEndian(result.AsSpan(at), adler);
+        return result;
+    }
+
+    /// <summary><paramref name="y"/>행 원본 RGBA 바이트.</summary>
+    private static void RawRow(Color32[] px, int w, int y, byte[] row)
+    {
+        int start = y * w;
+        for (int x = 0; x < w; x++)
+        {
+            var c = px[start + x];
+            int i = x * 4;
+            row[i] = c.R; row[i + 1] = c.G; row[i + 2] = c.B; row[i + 3] = c.A;
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="y"/>행을 거른 줄(맨 앞 1바이트 = 필터 종류)을 <paramref name="dest"/>에 쓴다. 행마다 절댓값 합이 가장 작은 필터를 고른다(표준 휴리스틱).
+    /// <paramref name="prev"/> = 윗줄 원본(첫 줄이면 0), <paramref name="cur"/>에는 이 줄 원본이 남는다.
+    /// </summary>
+    private static void FilterRow(Color32[] px, int w, int y, byte[] prev, byte[] cur, byte[] candidate, Span<byte> dest)
+    {
+        RawRow(px, w, y, cur);
+        long bestScore = long.MaxValue;
+        for (byte f = 0; f <= 4; f++)
+        {
+            long score = ApplyFilter(f, cur, prev, candidate, 4);
+            if (score >= bestScore) continue;
+            bestScore = score;
+            dest[0] = f;
+            candidate.CopyTo(dest[1..]);
+        }
+    }
+
+    private const uint AdlerMod = 65521;
+
+    private static uint Adler32(ReadOnlySpan<byte> data)
+    {
+        const int NMax = 5552; // 이만큼 더해도 uint가 넘치지 않는다
+        uint a = 1, b = 0;
+        while (data.Length > 0)
+        {
+            int n = Math.Min(NMax, data.Length);
+            foreach (var v in data[..n])
+            {
+                a += v;
+                b += a;
+            }
+            a %= AdlerMod;
+            b %= AdlerMod;
+            data = data[n..];
+        }
+        return (b << 16) | a;
+    }
+
+    /// <summary>앞 조각의 Adler-32와 뒤 조각(길이 <paramref name="length2"/>)의 Adler-32로 이어 붙인 데이터의 값(zlib adler32_combine).</summary>
+    private static uint Adler32Combine(uint adler1, uint adler2, long length2)
+    {
+        ulong rem = (ulong)(length2 % AdlerMod);
+        ulong sum1 = adler1 & 0xffff;
+        ulong sum2 = rem * sum1 % AdlerMod;
+        sum1 += (adler2 & 0xffff) + AdlerMod - 1;
+        sum2 += ((adler1 >> 16) & 0xffff) + ((adler2 >> 16) & 0xffff) + AdlerMod - rem;
+        if (sum1 >= AdlerMod) sum1 -= AdlerMod;
+        if (sum1 >= AdlerMod) sum1 -= AdlerMod;
+        if (sum2 >= (ulong)AdlerMod << 1) sum2 -= (ulong)AdlerMod << 1;
+        if (sum2 >= AdlerMod) sum2 -= AdlerMod;
+        return (uint)(sum1 | (sum2 << 16));
     }
 
     // ───────────── 쓰기 도우미 ─────────────

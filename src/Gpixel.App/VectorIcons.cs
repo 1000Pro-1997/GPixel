@@ -115,6 +115,14 @@ public enum VectorIcon
     LineDiagonal,
     /// <summary>위로 휜 곡선(도형 도구 곡선 — 직접 그린 경로).</summary>
     Curve,
+    /// <summary>열린 원호(계산 중 — Lucide loader-circle, 돌려 그린다).</summary>
+    LoaderCircle,
+    /// <summary>상자(에셋 패키지 — Lucide package).</summary>
+    Package,
+    /// <summary>위 화살표와 받침(내보내기 — Lucide upload).</summary>
+    Upload,
+    /// <summary>꺾쇠 두 개(스크립트 효과 — Lucide code).</summary>
+    Code,
 }
 
 public static class VectorIcons
@@ -314,6 +322,16 @@ public static class VectorIcons
         VectorIcon.Cube => ["M12 2 21 7v10l-9 5-9-5V7Z", "m3 7 9 5 9-5", "M12 12v10"],
         VectorIcon.LineDiagonal => ["M4 20 20 4"],
         VectorIcon.Curve => ["M3 19Q12 1 21 19"],
+        VectorIcon.LoaderCircle => ["M21 12a9 9 0 1 1-6.219-8.56"],
+        VectorIcon.Package =>
+        [
+            "M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z",
+            "M12 22V12",
+            "m3.3 7 7.703 4.734a2 2 0 0 0 1.994 0L20.7 7",
+            "m7.5 4.27 9 5.15",
+        ],
+        VectorIcon.Upload => ["M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4", "m17 8-5-5-5 5", "M12 3v12"],
+        VectorIcon.Code => ["m16 18 6-6-6-6", "m8 6-6 6 6 6"],
         _ => [],
     };
 

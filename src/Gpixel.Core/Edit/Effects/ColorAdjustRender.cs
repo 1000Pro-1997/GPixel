@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Gpixel.Core.Model;
 
 namespace Gpixel.Core.Edit;
@@ -18,14 +19,20 @@ internal static class ColorAdjustRender
         };
         if (map is null) return;
         var px = image.Pixels;
-        var memo = new Dictionary<uint, Color32>();
-        for (int i = 0; i < px.Length; i++)
+        int w = image.Width;
+        // 같은 색은 한 번만 계산한다(여러 줄이 함께 찾고 넣음)
+        var memo = new ConcurrentDictionary<uint, Color32>();
+        EffectParallel.For(0, image.Height, w, y =>
         {
-            var c = px[i];
-            if (c.A == 0) continue;
-            if (!memo.TryGetValue(c.Argb, out var r)) memo[c.Argb] = r = map(c).WithAlpha(c.A);
-            px[i] = r;
-        }
+            var row = px.AsSpan(y * w, w);
+            for (int x = 0; x < row.Length; x++)
+            {
+                var c = row[x];
+                if (c.A == 0) continue;
+                if (!memo.TryGetValue(c.Argb, out var r)) memo[c.Argb] = r = map(c).WithAlpha(c.A);
+                row[x] = r;
+            }
+        });
     }
 
     private static int Percent(int amount) => (amount * 255 + 50) / 100;

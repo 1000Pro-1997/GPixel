@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 온라인 에셋 카탈로그 만들기: catalog/의 제출 패키지를 검사해 docs/catalog/(홈페이지 정적 index)를 만든다. catalog/README.md 참고. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Gpixel.Core\Gpixel.Core.csproj" />
+  </ItemGroup>
+
+</Project>

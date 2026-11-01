@@ -155,7 +155,8 @@ public sealed class GifExportDialog : DialogBase
 
     private void RebuildFrames()
     {
-        _frames = _project.Frames.Count == 0 ? [] : GifWriter.ProjectFrames(_project, RangeTag);
+        var tag = RangeTag;
+        _frames = _project.Frames.Count == 0 ? [] : WorkOverlay.Run(this, UiStrings.Busy_GifFrames, progress => GifWriter.ProjectFrames(_project, tag, progress));
         _index = 0;
         RebuildPreview();
     }
@@ -225,7 +226,9 @@ public sealed class GifExportDialog : DialogBase
     {
         try
         {
-            var info = GifWriter.Save(_frames, path, new GifOptions { Scale = Scale, PlayCount = PlayCount, Background = BackgroundColor });
+            var options = new GifOptions { Scale = Scale, PlayCount = PlayCount, Background = BackgroundColor };
+            var frames = _frames;
+            var info = WorkOverlay.Run(this, UiStrings.Busy_GifSaving, progress => GifWriter.Save(frames, path, options, progress));
             long bytes = new FileInfo(path).Length;
             ExportedPath = path;
             var loops = PlayCount == 0 ? UiStrings.S_GifExportDialog_ExportTo_D1F78B3F5D : string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_GifExportDialog_ExportTo_721F431829,PlayCount);

@@ -16,11 +16,17 @@ internal static class FadeRender
             Array.Clear(pixels);
             return;
         }
-        for (int i = 0; i < pixels.Length; i++)
+        int w = image.Width;
+        EffectParallel.For(0, image.Height, w, y =>
         {
-            if (pixels[i].A == 0) continue;
-            byte alpha = (byte)Math.Round(pixels[i].A * visibility, MidpointRounding.AwayFromZero);
-            pixels[i] = alpha == 0 ? Color32.Transparent : pixels[i].WithAlpha(alpha);
-        }
+            var row = pixels.AsSpan(y * w, w);
+            for (int x = 0; x < row.Length; x++)
+            {
+                var c = row[x];
+                if (c.A == 0) continue;
+                byte alpha = (byte)Math.Round(c.A * visibility, MidpointRounding.AwayFromZero);
+                row[x] = alpha == 0 ? Color32.Transparent : c.WithAlpha(alpha);
+            }
+        });
     }
 }

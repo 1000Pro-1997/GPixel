@@ -42,15 +42,17 @@ public static class GifWriter
     /// <summary>브라우저가 이보다 짧은 지연을 느리게(보통 100ms) 바꾸므로 쓰는 최소 지연(1/100초).</summary>
     public const int MinDelayCs = 2;
 
-    public static GifInfo Save(IReadOnlyList<GifFrame> frames, string path, GifOptions options)
+    /// <param name="progress">진행(프레임마다 한 몫).</param>
+    public static GifInfo Save(IReadOnlyList<GifFrame> frames, string path, GifOptions options, WorkProgress? progress = null)
     {
         var full = Path.GetFullPath(path);
         var temp = full + ".gpixel-tmp";
         try
         {
             GifInfo info;
+            using (var stage = progress?.Begin(frames.Count))
             using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                info = Write(frames, fs, options);
+                info = Write(frames, fs, options, stage);
             File.Move(temp, full, overwrite: true);
             return info;
         }
@@ -60,7 +62,9 @@ public static class GifWriter
         }
     }
 
-    public static GifInfo Write(IReadOnlyList<GifFrame> frames, Stream stream, GifOptions options)
+    public static GifInfo Write(IReadOnlyList<GifFrame> frames, Stream stream, GifOptions options) => Write(frames, stream, options, null);
+
+    private static GifInfo Write(IReadOnlyList<GifFrame> frames, Stream stream, GifOptions options, WorkStage? stage)
     {
         if (frames.Count == 0) throw new ArgumentException(Gpixel.Core.Localization.DomainStrings.Gif_NoFrames, nameof(frames));
         int w = frames[0].Image.Width, h = frames[0].Image.Height;
@@ -156,6 +160,7 @@ public static class GifWriter
             bw.Write((byte)minCodeSize);
             bw.Flush();
             LzwEncode(Scaled(indices, w, h, scale), minCodeSize, stream);
+            stage?.Step(1);
         }
         bw.Write((byte)0x3B);
         bw.Flush();
@@ -468,15 +473,22 @@ public static class GifWriter
     /// 프로젝트 애니메이션 → GIF 프레임: 태그면 재생 순서(정방향·역방향·왕복, <see cref="AnimationTag.GetPlaybackOrder"/>), 없으면 모든 프레임 순서대로.
     /// 그림은 프레임 시트와 똑같이 합성한다(<see cref="ProjectExport.CompositeFrame"/>: 레이어 효과, 지금 착장, 숨긴·내보내기에서 뺀 레이어 제외).
     /// </summary>
-    public static List<GifFrame> ProjectFrames(SpriteProject project, AnimationTag? tag)
+    /// <param name="progress">진행(합성할 프레임마다 한 몫).</param>
+    public static List<GifFrame> ProjectFrames(SpriteProject project, AnimationTag? tag, WorkProgress? progress = null)
     {
         var order = tag?.GetPlaybackOrder() ?? Enumerable.Range(0, project.Frames.Count).ToList();
         var cache = new Dictionary<int, PixelImage>();
+        var effects = ProjectExport.NewCache();
         var list = new List<GifFrame>(order.Count);
+        using var stage = progress?.Begin(order.Distinct().Count());
         foreach (var fi in order)
         {
             if (fi < 0 || fi >= project.Frames.Count) continue;
-            if (!cache.TryGetValue(fi, out var img)) cache[fi] = img = ProjectExport.CompositeFrame(project, fi);
+            if (!cache.TryGetValue(fi, out var img))
+            {
+                cache[fi] = img = ProjectExport.CompositeFrame(project, fi, effects);
+                stage?.Step(1);
+            }
             list.Add(new GifFrame(img, project.Frames[fi].DurationMs));
         }
         return list;

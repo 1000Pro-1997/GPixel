@@ -1,0 +1,71 @@
+name: 에셋 제출 / Asset submission
+description: 효과 레시피·그라데이션 패키지를 온라인 카탈로그에 올려 달라고 요청합니다 / Submit an effect recipe or gradient package to the online catalog
+title: "[Asset] "
+labels: [asset-submission]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gpixel의 **에셋 관리자 > 온라인에 올리기…** 에서 검사를 통과하고 **저장하고 제출 페이지 열기…** 를 누르면 이 양식이 패키지 정보로 채워져 열립니다. 함께 저장된 `<패키지 ID>-<버전>-submission.zip`을 아래 첨부 칸에 끌어다 놓으세요(GitHub는 `.gpixel-asset` 첨부를 받지 않아 zip으로 냅니다). 검토를 마치면 관리자가 저장소의 `catalog/`에 넣고, 홈페이지의 둘러보기 목록에 실립니다. 규칙은 [catalog/README.md](https://github.com/1000Pro-1997/GPixel/blob/main/catalog/README.md)에 있습니다.
+
+        In Gpixel, open **Asset Manager > Publish Online…**, pass the checks and click **Save and Open Submission Page…**; this form opens prefilled with the package details. Drag the `<package-id>-<version>-submission.zip` saved next to the package into the attachment field below (GitHub doesn't accept `.gpixel-asset` attachments). After review a maintainer adds it to `catalog/` and it appears in Browse. Rules: [catalog/README.md](https://github.com/1000Pro-1997/GPixel/blob/main/catalog/README.md).
+  - type: input
+    id: package-id
+    attributes:
+      label: 패키지 ID / Package ID
+      placeholder: pixel-cat.neon-set
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 버전 / Version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: 이름 / Name
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: 짧은 설명 / Short description
+      description: 둘러보기 목록에 보일 1~200자 / 1–200 characters shown in Browse
+    validations:
+      required: true
+  - type: input
+    id: tags
+    attributes:
+      label: 태그 / Tags
+      placeholder: neon, effect
+  - type: input
+    id: license
+    attributes:
+      label: 라이선스 / License
+      placeholder: CC0-1.0
+    validations:
+      required: true
+  - type: textarea
+    id: submission
+    attributes:
+      label: 제출 zip / Submission zip
+      description: Gpixel이 저장한 `-submission.zip`을 여기에 끌어다 놓으세요 / Drag the `-submission.zip` saved by Gpixel here
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: 덧붙일 말 / Notes
+      description: 바뀐 점(새 버전이면), 참고 화면 / What changed (for a new version), screenshots
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: 확인 / Confirmation
+      options:
+        - label: 직접 만들었거나 고른 라이선스로 나눌 권리가 있는 에셋입니다 / I made these assets or have the right to share them under the chosen license
+          required: true
+        - label: Gpixel의 제출 전 검사에서 오류가 없었습니다 / Gpixel's pre-submission check showed no errors
+          required: true

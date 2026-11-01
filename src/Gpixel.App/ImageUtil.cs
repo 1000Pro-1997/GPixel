@@ -54,6 +54,23 @@ public static class ImageUtil
         return dest;
     }
 
+    /// <summary>
+    /// 원래 <paramref name="source"/> 크기 그림을 <see cref="DrawFitted"/>와 같은 자리·크기에 그리되, 줄인 썸네일 <paramref name="thumb"/>을 쓴다
+    /// (최근접 — 원본을 줄여 그린 것과 같은 모양). 그린 화면 사각형을 돌려준다.
+    /// </summary>
+    public static Rect DrawFittedThumb(DrawingContext g, Bitmap thumb, Size source, Rect area, bool checker = false)
+    {
+        if (source.Width <= 0 || source.Height <= 0 || area.Width <= 0 || area.Height <= 0) return default;
+        double fit = Math.Min(area.Width / source.Width, area.Height / source.Height);
+        double scale = fit >= 1 ? Math.Floor(fit) : fit;
+        double w = Math.Max(1, Math.Floor(source.Width * scale)), h = Math.Max(1, Math.Floor(source.Height * scale));
+        var dest = new Rect(Math.Floor(area.X + (area.Width - w) / 2), Math.Floor(area.Y + (area.Height - h) / 2), w, h);
+        if (checker) AppTheme.DrawChecker(g, dest, Math.Max(2, Math.Min(8, (int)scale * 2)));
+        using (Pixelated(g))
+            g.DrawImage(thumb, new Rect(0, 0, thumb.PixelSize.Width, thumb.PixelSize.Height), dest);
+        return dest;
+    }
+
     /// <summary>비트맵을 최근접(번지지 않게)으로 확대해 그리는 구간. using으로 감싼다.</summary>
     public static DrawingContext.PushedState Pixelated(DrawingContext g)
         => g.PushRenderOptions(new RenderOptions { BitmapInterpolationMode = BitmapInterpolationMode.None });

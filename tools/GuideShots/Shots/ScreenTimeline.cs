@@ -317,12 +317,9 @@ internal static class ScreenTimelineShots
     [Shot("screen-layer-effects")]
     public static void LayerEffects(ShotKit k)
     {
-        // 커스텀 탭에 보일 사용자 정의 효과 둘.
-        EffectPresets.Save(Path.Combine(Platform.AppDataDirectory, "Gpixel", EffectPresets.FileName),
-        [
-            EffectPreset.Capture("Gold outline", [new OutlineEffect { Color = new Color32(255, 230, 120, 255) }]),
-            EffectPreset.Capture("Hurt", [new HitFlashEffect { Color = new Color32(255, 80, 80, 255) }, new ShakeEffect()]),
-        ]);
+        // 커스텀 탭에 보일 개인 효과 레시피 둘.
+        AppAssets.Store.SavePersonalRecipe(EffectRecipe.Capture("", "Gold outline", [new OutlineEffect { Color = new Color32(255, 230, 120, 255) }]));
+        AppAssets.Store.SavePersonalRecipe(EffectRecipe.Capture("", "Hurt", [new HitFlashEffect { Color = new Color32(255, 80, 80, 255) }, new ShakeEffect()]));
         var main = OpenTall(k, 370);
         Build(k, main, effects: true);
         var p = Project(main);

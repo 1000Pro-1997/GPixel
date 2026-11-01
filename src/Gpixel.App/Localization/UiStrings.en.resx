@@ -1418,13 +1418,13 @@ Alpha is kept and fully transparent pixels are unchanged. One undo step.</value>
   <data name="Ai_Locked_Outfit" xml:space="preserve"><value>Wearing outfit "{outfit}" would change locked layers: {layers} — ask the user to unlock them</value></data>
   <data name="Ai_Locked_AutoLayout" xml:space="preserve"><value>Group "{group}" uses auto layout, so this change could move locked part {index} "{name}" — ask the user to unlock it or turn off auto layout</value></data>
   <data name="Ai_Effect_What" xml:space="preserve"><value>effect</value></data>
-  <data name="Ai_Effect_TypeOrPreset" xml:space="preserve"><value>Pass either type (an effect type from list_effect_types) or preset (a saved custom effect preset name), not both</value></data>
+  <data name="Ai_Effect_TypeOrPreset" xml:space="preserve"><value>Pass either type (an effect type from list_effect_types) or preset (an effect recipe name or id), not both</value></data>
   <data name="Ai_Effect_ClipFirst" xml:space="preserve"><value>clip_to_above: the first effect (index 0) has no effect above it to clip to</value></data>
   <data name="Ai_Effect_UnknownType" xml:space="preserve"><value>type: unknown effect type "{type}" — types: {types}</value></data>
   <data name="Ai_Effect_PresetSettings" xml:space="preserve"><value>settings can't be combined with preset — add the preset, then change its effects with set_effect</value></data>
-  <data name="Ai_Effect_PresetLoad" xml:space="preserve"><value>preset: couldn't read the saved effect presets: {error}</value></data>
-  <data name="Ai_Effect_NoPresets" xml:space="preserve"><value>preset: there are no saved custom effect presets — add an effect type instead (see list_effect_types)</value></data>
-  <data name="Ai_Effect_UnknownPreset" xml:space="preserve"><value>preset: no saved effect preset "{name}" — presets: {presets}</value></data>
+  <data name="Ai_Effect_PresetLoad" xml:space="preserve"><value>preset: couldn't read the personal effect recipes: {error}</value></data>
+  <data name="Ai_Effect_NoPresets" xml:space="preserve"><value>preset: there are no effect recipes available — add an effect type instead (see list_effect_types)</value></data>
+  <data name="Ai_Effect_UnknownPreset" xml:space="preserve"><value>preset: no effect recipe "{name}" — available: {presets}</value></data>
   <data name="Ai_Effect_Added" xml:space="preserve"><value>{tool}: added {effects} to layer {layer} "{name}" as effect {indices}</value></data>
   <data name="Ai_Effect_NothingToChange" xml:space="preserve"><value>Pass at least one of settings, from_frame/to_frame/all_frames, enabled, clip_to_above or move_to</value></data>
   <data name="Ai_Effect_Unchanged" xml:space="preserve"><value>{tool}: effect {effect} of layer {layer} is already like that — nothing changed</value></data>
@@ -2646,6 +2646,7 @@ Please download it from the release page and replace it manually.</value></data>
   <data name="EffectOutline_HideOriginal" xml:space="preserve"><value>Hide original (outline only)</value></data>
   <data name="EffectOutline_HideOriginalTip" xml:space="preserve"><value>Erases the picture the outline is drawn around so only the line remains (inside: only the edge ring). Effects clipped to this outline apply to the line only.</value></data>
   <data name="EffectOutline_HideOriginalSummary" xml:space="preserve"><value> · outline only</value></data>
+  <data name="EffectMissing_Note" xml:space="preserve"><value>This effect ({0}) is a kind this version of Gpixel does not know, so it is not drawn and cannot be edited. Saving keeps its original settings, and a Gpixel that knows it can use it again.</value></data>
   <data name="EffectOutline_ColorMode" xml:space="preserve"><value>Color mode</value></data>
   <data name="EffectOutline_ModeFixed" xml:space="preserve"><value>Fixed color</value></data>
   <data name="EffectOutline_ModeShade" xml:space="preserve"><value>Shade from neighbors</value></data>
@@ -2802,6 +2803,7 @@ Press the question mark button at the top right to see what the AI can do, with 
   <data name="Lospec_Favorites_View" xml:space="preserve"><value>View favorites</value></data>
   <data name="Lospec_Favorites_OfflineHint" xml:space="preserve"><value>Favorite palettes are available offline.</value></data>
   <data name="Lospec_Favorites_SaveFailed" xml:space="preserve"><value>Couldn't save favorites: {message}</value></data>
+  <data name="Chat_Turn_Copy_Tip" xml:space="preserve"><value>Copy message text</value></data>
   <data name="Chat_Turn_Edit_Tip" xml:space="preserve"><value>Edit — remove this message and the replies after it, and put its text back in the input box</value></data>
   <data name="Chat_Turn_Delete_Tip" xml:space="preserve"><value>Delete — remove this message and the replies after it from the chat</value></data>
   <data name="Chat_Turn_Edit_Title" xml:space="preserve"><value>Edit message</value></data>
@@ -3239,6 +3241,9 @@ Press the question mark button at the top right to see what the AI can do, with 
   <data name="AiDraw_Mode_Generate_Text" xml:space="preserve"><value>Codex generates a high-quality image and Gpixel converts it to pixel art (background removal, grid and palette are automatic). Animations are drawn with all frames on one sprite sheet, then split and converted. Each image takes about 30 to 90 seconds. The Claude tab draws pixels directly; ask it to "let Codex do it" to generate just that drawing with Codex.</value></data>
   <data name="AiDraw_Mode_Direct" xml:space="preserve"><value>Draw pixels directly</value></data>
   <data name="AiDraw_Mode_Direct_Text" xml:space="preserve"><value>The AI places pixels one by one with the pixel tools. Best for small fixes and exact pixel-level edits.</value></data>
+  <data name="AiDraw_Mode_AutoCheck" xml:space="preserve"><value>Draw pixels + auto-check</value></data>
+  <data name="AiDraw_Mode_AutoCheck_Text" xml:space="preserve"><value>After drawing with pixel tools, inspect the actual canvas against the request and reference images. Correct missing details and inspect again, then give a subjective self-rating with reasons in the final reply. This is not an objective similarity test.</value></data>
+  <data name="Chat_DrawMode_Notice" xml:space="preserve"><value>Drawing mode: {mode}</value></data>
   <data name="AiDraw_Mode_ClaudeWarning" xml:space="preserve"><value>Claude can't create images, so it draws pixels directly. Image generation is available in the Codex tab.</value></data>
   <data name="AiDraw_Codex_Checking" xml:space="preserve"><value>Checking Codex CLI…</value></data>
   <data name="AiDraw_Codex_Ready" xml:space="preserve"><value>Codex CLI: logged in — image generation is ready.</value></data>
@@ -3441,4 +3446,272 @@ Press the question mark button at the top right to see what the AI can do, with 
   <data name="Shape_StepsOrthogonal" xml:space="preserve"><value>Orthogonal</value></data>
   <data name="Shape_StepsOrthogonalTip" xml:space="preserve"><value>Steps only sideways or up/down so every pixel touches the next by an edge (an L-shaped corner at each step).</value></data>
   <data name="Help_NoShortcut" xml:space="preserve"><value>no shortcut</value></data>
+  <data name="Busy_Saving" xml:space="preserve"><value>Saving</value></data>
+  <data name="Busy_Opening" xml:space="preserve"><value>Opening</value></data>
+  <data name="Busy_Exporting" xml:space="preserve"><value>Exporting</value></data>
+  <data name="Busy_GifFrames" xml:space="preserve"><value>Compositing frames</value></data>
+  <data name="Busy_GifSaving" xml:space="preserve"><value>Creating GIF</value></data>
+  <data name="Busy_Hint" xml:space="preserve"><value>Editing is paused until this finishes</value></data>
+  <data name="Assets_Title" xml:space="preserve"><value>Asset Manager</value></data>
+  <data name="Assets_Menu" xml:space="preserve"><value>Asset Manager…</value></data>
+  <data name="Assets_ManagerButton" xml:space="preserve"><value>Asset Manager</value></data>
+  <data name="Assets_ManagerTip" xml:space="preserve"><value>Turn installed packages and personal assets on or off, import, export or delete them.</value></data>
+  <data name="Assets_TabInstalled" xml:space="preserve"><value>Installed</value></data>
+  <data name="Assets_TabBrowse" xml:space="preserve"><value>Browse</value></data>
+  <data name="Assets_TabUpdates" xml:space="preserve"><value>Updates</value></data>
+  <data name="Assets_TabTrash" xml:space="preserve"><value>Trash</value></data>
+  <data name="Assets_FilterEffects" xml:space="preserve"><value>Effects</value></data>
+  <data name="Assets_FilterGradients" xml:space="preserve"><value>Gradients</value></data>
+  <data name="Assets_ShowHidden" xml:space="preserve"><value>Show hidden</value></data>
+  <data name="Assets_Search" xml:space="preserve"><value>Search by name</value></data>
+  <data name="Assets_Import" xml:space="preserve"><value>Import from File…</value></data>
+  <data name="Assets_ImportTip" xml:space="preserve"><value>Checks and installs a .gpixel-asset package file. A newer version of an installed package updates it.</value></data>
+  <data name="Assets_ImportTitle" xml:space="preserve"><value>Import Asset Package</value></data>
+  <data name="Assets_ImportError" xml:space="preserve"><value>Couldn't install the package: {0}</value></data>
+  <data name="Assets_FileType" xml:space="preserve"><value>Gpixel asset package</value></data>
+  <data name="Assets_ExportPersonal" xml:space="preserve"><value>Export Personal Assets…</value></data>
+  <data name="Assets_ExportPersonalTip" xml:space="preserve"><value>Bundles the personal assets shown in the list into one .gpixel-asset package file.</value></data>
+  <data name="Assets_ExportTitle" xml:space="preserve"><value>Export as Package File</value></data>
+  <data name="Assets_ExportNamePrompt" xml:space="preserve"><value>Package name</value></data>
+  <data name="Assets_DefaultPackageName" xml:space="preserve"><value>My Assets</value></data>
+  <data name="Assets_PersonalExportEmpty" xml:space="preserve"><value>There are no personal assets to export.</value></data>
+  <data name="Assets_Publish" xml:space="preserve"><value>Publish Online…</value></data>
+  <data name="Assets_PublishTip" xml:space="preserve"><value>Bundles the selected personal asset (or, with none selected, the personal assets shown in the list) into a public package, checks it, saves it and opens the online catalog submission form.</value></data>
+  <data name="Assets_PublishEntryTip" xml:space="preserve"><value>Starts a public package with this asset and submits it to the online catalog. You can add other personal assets in the publish window.</value></data>
+  <data name="Publish_Title" xml:space="preserve"><value>Publish Online</value></data>
+  <data name="Publish_Intro" xml:space="preserve"><value>Enter the author and license; once the checks pass, the package and a submission zip are saved and the GitHub submission form opens. Gpixel uploads nothing itself; submitted packages appear in Browse after review.</value></data>
+  <data name="Publish_NoPersonal" xml:space="preserve"><value>There are no personal assets to publish. Save some from the effects window or the gradient preset window first.</value></data>
+  <data name="Publish_Author" xml:space="preserve"><value>Author</value></data>
+  <data name="Publish_AuthorId" xml:space="preserve"><value>Author ID</value></data>
+  <data name="Publish_AuthorIdTip" xml:space="preserve"><value>Lowercase letters, digits and hyphens (e.g. pixel-cat). It becomes the first part of the package ID and can't change after publishing. gpixel is reserved for official packages.</value></data>
+  <data name="Publish_AuthorName" xml:space="preserve"><value>Display name</value></data>
+  <data name="Publish_AuthorUrl" xml:space="preserve"><value>Website (optional)</value></data>
+  <data name="Publish_AuthorNote" xml:space="preserve"><value>The author information is remembered on this computer for your next publish and for personal exports.</value></data>
+  <data name="Publish_Package" xml:space="preserve"><value>Package</value></data>
+  <data name="Publish_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="Publish_Id" xml:space="preserve"><value>Package ID</value></data>
+  <data name="Publish_IdTip" xml:space="preserve"><value>"author-id.name" (lowercase letters, digits and hyphens). It can't change after publishing; a fixed package keeps the ID with a higher version.</value></data>
+  <data name="Publish_Version" xml:space="preserve"><value>Version</value></data>
+  <data name="Publish_VersionFirst" xml:space="preserve"><value>This ID has not been published yet.</value></data>
+  <data name="Publish_VersionPrevious" xml:space="preserve"><value>Last version of this ID: {0} (online list or saved on this computer). Suggested next version: {1}.</value></data>
+  <data name="Publish_UseSuggestion" xml:space="preserve"><value>Use suggested version</value></data>
+  <data name="Publish_Summary" xml:space="preserve"><value>Short description</value></data>
+  <data name="Publish_SummaryHint" xml:space="preserve"><value>One or two sentences shown in Browse (up to 200 characters)</value></data>
+  <data name="Publish_Tags" xml:space="preserve"><value>Tags</value></data>
+  <data name="Publish_TagsHint" xml:space="preserve"><value>Comma-separated (e.g. neon, hit)</value></data>
+  <data name="Publish_License" xml:space="preserve"><value>License</value></data>
+  <data name="Publish_LicenseChoose" xml:space="preserve"><value>Choose a license</value></data>
+  <data name="Publish_LicenseCustom" xml:space="preserve"><value>Custom</value></data>
+  <data name="Publish_LicenseId" xml:space="preserve"><value>License ID</value></data>
+  <data name="Publish_LicenseIdHint" xml:space="preserve"><value>LicenseRef-MyTerms or an SPDX ID</value></data>
+  <data name="Publish_LicenseText" xml:space="preserve"><value>License text (the package's LICENSE.txt)</value></data>
+  <data name="Publish_LicenseNone" xml:space="preserve"><value>Decides how others may use these assets. Packages without a license can't be published.</value></data>
+  <data name="Publish_LicenseCustomNote" xml:space="preserve"><value>A license you wrote yourself needs an ID starting with LicenseRef- and its full text.</value></data>
+  <data name="Publish_LicenseFile" xml:space="preserve"><value>A LICENSE.txt naming the license and linking its SPDX text is added to the package.</value></data>
+  <data name="Publish_License_CC0" xml:space="preserve"><value>Anyone may use and modify it without conditions (public domain dedication).</value></data>
+  <data name="Publish_License_CCBY" xml:space="preserve"><value>Use and modification, including commercial, with credit to the author.</value></data>
+  <data name="Publish_License_CCBYSA" xml:space="preserve"><value>With credit; modified versions must be shared under the same license.</value></data>
+  <data name="Publish_License_CCBYNC" xml:space="preserve"><value>With credit, for non-commercial use only.</value></data>
+  <data name="Publish_License_MIT" xml:space="preserve"><value>Free use as long as the copyright notice and license text are kept.</value></data>
+  <data name="Publish_License_Apache" xml:space="preserve"><value>Like MIT, plus a patent grant and a notice of changes.</value></data>
+  <data name="Publish_Assets" xml:space="preserve"><value>Included assets</value></data>
+  <data name="Publish_AssetsCount" xml:space="preserve"><value>{0} of {1} personal assets</value></data>
+  <data name="Publish_Preview" xml:space="preserve"><value>List preview</value></data>
+  <data name="Publish_PreviewTip" xml:space="preserve"><value>The image shown in the Browse list and details. Pick one of the included assets' previews or replace it with a PNG (up to 512×512, 1 MB).</value></data>
+  <data name="Publish_PreviewReplace" xml:space="preserve"><value>Replace with Image File…</value></data>
+  <data name="Publish_PreviewAuto" xml:space="preserve"><value>Use Asset Preview</value></data>
+  <data name="Publish_PreviewCustom" xml:space="preserve"><value>Chosen image: {0}</value></data>
+  <data name="Publish_Checks" xml:space="preserve"><value>Pre-submission check</value></data>
+  <data name="Publish_ChecksOk" xml:space="preserve"><value>All checks passed. These are the same rules the online catalog CI uses.</value></data>
+  <data name="Publish_ChecksErrors" xml:space="preserve"><value>Errors: {0} · warnings: {1} — fix the errors to save.</value></data>
+  <data name="Publish_ChecksWarnings" xml:space="preserve"><value>Warnings: {0} — review them; you can still save.</value></data>
+  <data name="Publish_Save" xml:space="preserve"><value>Save and Open Submission Page…</value></data>
+  <data name="Publish_SaveTitle" xml:space="preserve"><value>Save Package for Publishing</value></data>
+  <data name="Publish_Saved" xml:space="preserve"><value>Saved.
+{0}
+{1}
+
+Drag the zip file into the submission form opened in your browser and submit it. It appears in Browse after review.</value></data>
+  <data name="Publish_SaveError" xml:space="preserve"><value>Could not save: {0}</value></data>
+  <data name="Assets_EmptyTrash" xml:space="preserve"><value>No recently deleted items.</value></data>
+  <data name="Assets_EmptyInstalled" xml:space="preserve"><value>No assets to show. Show hidden assets or choose another category.</value></data>
+  <data name="Assets_SelectHint" xml:space="preserve"><value>Select an item in the list on the left.</value></data>
+  <data name="Assets_Enabled" xml:space="preserve"><value>On</value></data>
+  <data name="Assets_Disabled" xml:space="preserve"><value>Off</value></data>
+  <data name="Assets_Broken" xml:space="preserve"><value>Unreadable</value></data>
+  <data name="Assets_IssuesHeader" xml:space="preserve"><value>Why it can't be read:</value></data>
+  <data name="Assets_MoreIssues" xml:space="preserve"><value>- and {0} more</value></data>
+  <data name="Assets_Status" xml:space="preserve"><value>Status</value></data>
+  <data name="Assets_Id" xml:space="preserve"><value>ID</value></data>
+  <data name="Assets_Version" xml:space="preserve"><value>Version</value></data>
+  <data name="Assets_Author" xml:space="preserve"><value>Author</value></data>
+  <data name="Assets_License" xml:space="preserve"><value>License</value></data>
+  <data name="Assets_MinApp" xml:space="preserve"><value>Required app version</value></data>
+  <data name="Assets_Source" xml:space="preserve"><value>Source</value></data>
+  <data name="Assets_SourceFile" xml:space="preserve"><value>Local file</value></data>
+  <data name="Assets_SourcePersonal" xml:space="preserve"><value>Personal asset</value></data>
+  <data name="Assets_SourceBuiltIn" xml:space="preserve"><value>Built into the app</value></data>
+  <data name="Assets_SourcePackage" xml:space="preserve"><value>Package {0} {1}</value></data>
+  <data name="Assets_InstalledAt" xml:space="preserve"><value>Installed</value></data>
+  <data name="Assets_DeletedAt" xml:space="preserve"><value>Deleted</value></data>
+  <data name="Assets_Contents" xml:space="preserve"><value>Contents</value></data>
+  <data name="Assets_Kind" xml:space="preserve"><value>Kind</value></data>
+  <data name="Assets_KindEffect" xml:space="preserve"><value>Effect recipe</value></data>
+  <data name="Assets_KindGradient" xml:space="preserve"><value>Gradient</value></data>
+  <data name="Assets_EffectCount" xml:space="preserve"><value>{0} effects</value></data>
+  <data name="Assets_FrameRangeAll" xml:space="preserve"><value>Inserted on: all frames</value></data>
+  <data name="Assets_FrameRangeAdd" xml:space="preserve"><value>Inserted on: the effects window's add range</value></data>
+  <data name="Assets_Enable" xml:space="preserve"><value>Turn On</value></data>
+  <data name="Assets_Disable" xml:space="preserve"><value>Turn Off</value></data>
+  <data name="Assets_ToggleTip" xml:space="preserve"><value>Assets of a package that is off are hidden from the effects window and gradient lists, but its files stay. Effects and gradients already inserted don't change.</value></data>
+  <data name="Assets_Export" xml:space="preserve"><value>Export as Package File…</value></data>
+  <data name="Assets_Rollback" xml:space="preserve"><value>Roll Back to Previous Version ({0})</value></data>
+  <data name="Assets_OpenFolder" xml:space="preserve"><value>Open File Location</value></data>
+  <data name="Assets_WebPage" xml:space="preserve"><value>Open Web Page</value></data>
+  <data name="Assets_ViewLicense" xml:space="preserve"><value>View License</value></data>
+  <data name="Assets_Delete" xml:space="preserve"><value>Delete</value></data>
+  <data name="Assets_DeletePackage" xml:space="preserve"><value>Delete Entire Package</value></data>
+  <data name="Assets_Restore" xml:space="preserve"><value>Restore</value></data>
+  <data name="Assets_Rename" xml:space="preserve"><value>Rename…</value></data>
+  <data name="Assets_NamePrompt" xml:space="preserve"><value>Name</value></data>
+  <data name="Assets_DuplicateName" xml:space="preserve"><value>A personal asset named '{0}' already exists.</value></data>
+  <data name="Assets_DeleteQuestion" xml:space="preserve"><value>Delete the package '{0}'? Effects and gradients already inserted into projects don't change. You can restore it from Trash while it is among the {1} most recent deletions.</value></data>
+  <data name="Assets_DeletePersonalQuestion" xml:space="preserve"><value>Delete the personal asset '{0}'? Values already inserted into projects don't change. Restore it from Trash while it is among the {1} most recent deletions.</value></data>
+  <data name="Assets_DeletedNote" xml:space="preserve"><value>Only the {0} most recent deletions are kept.</value></data>
+  <data name="Assets_ActionError" xml:space="preserve"><value>Couldn't complete the asset action: {0}</value></data>
+  <data name="Assets_MigrationError" xml:space="preserve"><value>Couldn't move the old presets into personal assets. The old files are untouched and the move is retried on the next start: {0}</value></data>
+  <data name="Assets_SaveAsPersonal" xml:space="preserve"><value>Save as Personal Asset</value></data>
+  <data name="Assets_PackageGradientNote" xml:space="preserve"><value>This gradient comes from the {0} package. Saving edits leaves the original as is and stores a personal copy.</value></data>
+  <data name="Assets_RemoteLoading" xml:space="preserve"><value>Loading the online list…</value></data>
+  <data name="Assets_RemoteStatus" xml:space="preserve"><value>{0} packages · list from {1}</value></data>
+  <data name="Assets_RemoteOffline" xml:space="preserve"><value>Couldn't reach the online list, so this is the list from {0}. Installed assets keep working. ({1})</value></data>
+  <data name="Assets_RemoteOfflineEmpty" xml:space="preserve"><value>Couldn't reach the online list. Installed assets keep working. ({0})</value></data>
+  <data name="Assets_Refresh" xml:space="preserve"><value>Refresh</value></data>
+  <data name="Assets_AllTags" xml:space="preserve"><value>All tags</value></data>
+  <data name="Assets_BrowseNoMatch" xml:space="preserve"><value>No packages match.</value></data>
+  <data name="Assets_BrowseNothing" xml:space="preserve"><value>No packages to show.</value></data>
+  <data name="Assets_CannotInstall" xml:space="preserve"><value>Can't be installed on this version</value></data>
+  <data name="Assets_UpdateAvailable" xml:space="preserve"><value>New version {0}</value></data>
+  <data name="Assets_InstalledVersion" xml:space="preserve"><value>Installed {0}</value></data>
+  <data name="Assets_InstalledColumn" xml:space="preserve"><value>Installed version</value></data>
+  <data name="Assets_Size" xml:space="preserve"><value>Size</value></data>
+  <data name="Assets_SizeBytes" xml:space="preserve"><value>{0} bytes</value></data>
+  <data name="Assets_SizeKilobytes" xml:space="preserve"><value>{0} KB</value></data>
+  <data name="Assets_Published" xml:space="preserve"><value>Published</value></data>
+  <data name="Assets_Updated" xml:space="preserve"><value>Updated</value></data>
+  <data name="Assets_Review" xml:space="preserve"><value>Review</value></data>
+  <data name="Assets_ReviewOfficial" xml:space="preserve"><value>Official Gpixel</value></data>
+  <data name="Assets_ReviewReviewed" xml:space="preserve"><value>Reviewed</value></data>
+  <data name="Assets_Tags" xml:space="preserve"><value>Tags</value></data>
+  <data name="Assets_Incompatible" xml:space="preserve"><value>Can't install: {0}</value></data>
+  <data name="Assets_Install" xml:space="preserve"><value>Install</value></data>
+  <data name="Assets_UpdateTo" xml:space="preserve"><value>Update to {0}</value></data>
+  <data name="Assets_ShowInstalled" xml:space="preserve"><value>Show in Installed</value></data>
+  <data name="Assets_TabUpdatesCount" xml:space="preserve"><value>Updates ({0})</value></data>
+  <data name="Assets_NoUpdates" xml:space="preserve"><value>All installed packages are up to date.</value></data>
+  <data name="Assets_UpdateRow" xml:space="preserve"><value>Installed {0} → new version {1}</value></data>
+  <data name="Assets_CheckUpdates" xml:space="preserve"><value>Check for updates</value></data>
+  <data name="Assets_UpdatesNote" xml:space="preserve"><value>New versions are installed only when you click. The previous version is kept for rollback, and effects and gradients already in your projects don't change.</value></data>
+  <data name="Assets_CancelDownload" xml:space="preserve"><value>Cancel</value></data>
+  <data name="Assets_Downloading" xml:space="preserve"><value>Downloading {0}%</value></data>
+  <data name="Assets_InstallRemoteError" xml:space="preserve"><value>Couldn't install the downloaded package: {0}</value></data>
+  <data name="Assets_DownloadError" xml:space="preserve"><value>Couldn't download the package: {0}</value></data>
+  <data name="Assets_SourceRemote" xml:space="preserve"><value>Online catalog</value></data>
+  <data name="Assets_ContentsRecipes" xml:space="preserve"><value>Effect recipes: {0}</value></data>
+  <data name="Assets_ContentsGradients" xml:space="preserve"><value>Gradients: {0}</value></data>
+  <data name="Assets_ContentsOther" xml:space="preserve"><value>{0}: {1}</value></data>
+  <data name="EffectPreset_ShowInManager" xml:space="preserve"><value>Show in Asset Manager</value></data>
+  <data name="EffectPreset_PackageTileTip" xml:space="preserve"><value>A stack of {1} effects from the {0} package. Double-click or drag it into the effect list.</value></data>
+  <data name="ScriptEffect_Name" xml:space="preserve"><value>Script effect</value></data>
+  <data name="ScriptEffect_Description" xml:space="preserve"><value>An effect you write in JavaScript. Its source is saved with the project.</value></data>
+  <data name="ScriptEffect_PaletteTitle" xml:space="preserve"><value>Script effects</value></data>
+  <data name="ScriptEffect_PaletteHelp" xml:space="preserve"><value>Write your own effect in JavaScript. Declare effect({ name, settings, render(img, ctx, s) { … } }) and the settings panel is built for you; previews, the timeline and exports draw it exactly like built-in effects. Scripts run in an isolated engine with no file or network access, and if a frame takes over 2 seconds or uses too much memory, only this effect is skipped on that frame.</value></data>
+  <data name="ScriptEffect_New" xml:space="preserve"><value>New script</value></data>
+  <data name="ScriptEffect_NewTip" xml:space="preserve"><value>Adds a script effect starting from the light sweep example and opens the editor.</value></data>
+  <data name="ScriptEffect_OpenFile" xml:space="preserve"><value>Open JS file…</value></data>
+  <data name="ScriptEffect_OpenFileTip" xml:space="preserve"><value>Adds a JavaScript effect file (.js) as a script effect.</value></data>
+  <data name="ScriptEffect_ReplaceFileTip" xml:space="preserve"><value>Replaces this effect's source with a JavaScript file (.js). Settings with the same key keep their values.</value></data>
+  <data name="ScriptEffect_OpenFileTitle" xml:space="preserve"><value>Open script effect file</value></data>
+  <data name="ScriptEffect_FileFilter" xml:space="preserve"><value>JavaScript effect</value></data>
+  <data name="ScriptEffect_ReadError" xml:space="preserve"><value>Could not read the script file: {message}</value></data>
+  <data name="ScriptEffect_Edit" xml:space="preserve"><value>Edit script…</value></data>
+  <data name="ScriptEffect_Author" xml:space="preserve"><value>by {author}</value></data>
+  <data name="ScriptEffect_Hash" xml:space="preserve"><value>Hash {hash}</value></data>
+  <data name="ScriptEffect_Time" xml:space="preserve"><value>{ms} ms per frame in the current preview</value></data>
+  <data name="ScriptEffect_NotRunYet" xml:space="preserve"><value>Not computed yet.</value></data>
+  <data name="ScriptEffect_MissingSource" xml:space="preserve"><value>The source is not in this project, so this effect is not drawn. Open the same JS file to draw it again.</value></data>
+  <data name="ScriptEffect_NotTrusted" xml:space="preserve"><value>This script is not allowed to run, so it is not drawn. Only allow scripts you trust.</value></data>
+  <data name="ScriptEffect_Allow" xml:space="preserve"><value>Allow to run</value></data>
+  <data name="ScriptEffect_Invalid" xml:space="preserve"><value>The source has errors, so this effect is not drawn.</value></data>
+  <data name="ScriptEffect_Failed" xml:space="preserve"><value>Some frames failed (only this effect is skipped on those frames).</value></data>
+  <data name="ScriptEffect_Suspended" xml:space="preserve"><value>Stopped after {count} failures in a row. Fix it and run again, or turn the effect off and on.</value></data>
+  <data name="ScriptEffect_Resume" xml:space="preserve"><value>Run again</value></data>
+  <data name="ScriptEffect_ErrorAt" xml:space="preserve"><value>Line {line}, column {column}: {message}</value></data>
+  <data name="ScriptEffect_ErrorAtLine" xml:space="preserve"><value>Line {line}: {message}</value></data>
+  <data name="ScriptEffect_NoSettings" xml:space="preserve"><value>This script has no settings.</value></data>
+  <data name="ScriptEffect_Hint" xml:space="preserve"><value>The script source is stored once in the project by its hash. Editing the source switches the effect to the new source, and old sources no longer used are dropped when you save. If a frame goes over the limits (2 seconds, 50 million statements, 256 MB of memory), only this effect is skipped on that frame; after 3 failures in a row it stops until you turn it on again.</value></data>
+  <data name="ScriptEditor_Title" xml:space="preserve"><value>Edit script - {name}</value></data>
+  <data name="ScriptEditor_Hint" xml:space="preserve"><value>Declare effect({ name, settings: [...], render(img, ctx, s) { ... } }). img.data is an RGBA number array, and ctx has the progress, frame and source rectangle. Applying shows the result in the effects window and on the canvas right away.</value></data>
+  <data name="ScriptEditor_Apply" xml:space="preserve"><value>Apply</value></data>
+  <data name="ScriptEditor_ApplyTip" xml:space="preserve"><value>Parses the source and applies it to the effect (Ctrl+Enter).</value></data>
+  <data name="ScriptEditor_Applied" xml:space="preserve"><value>Applied.</value></data>
+  <data name="ScriptEditor_Errors" xml:space="preserve"><value>Errors: {count} — fix them and apply again.</value></data>
+  <data name="ScriptTrust_Title" xml:space="preserve"><value>Run script effects?</value></data>
+  <data name="ScriptTrust_Message" xml:space="preserve"><value>This project has script effects you have not seen before. Scripts run in an isolated engine with no file or network access, but only run ones you trust. Effects that do not run are not drawn and stay in the project as they are. Your choice is remembered per source hash, and you can allow a script later in the effects window.</value></data>
+  <data name="ScriptTrust_Run" xml:space="preserve"><value>Run</value></data>
+  <data name="ScriptTrust_DontRun" xml:space="preserve"><value>Don't run</value></data>
+  <data name="ScriptTrust_NoAuthor" xml:space="preserve"><value>No author</value></data>
+  <data name="ScriptTrust_Unnamed" xml:space="preserve"><value>Unnamed script</value></data>
+  <data name="EffectRecipe_GroupRow" xml:space="preserve"><value>{0} · recipe, {1} effects</value></data>
+  <data name="EffectRecipe_GroupTip" xml:space="preserve"><value>Parameter recipe: changing a value updates every linked effect setting together. Expand it to edit the effects inside.</value></data>
+  <data name="EffectRecipe_PanelHint" xml:space="preserve"><value>Adjust this recipe with the values below. One value changes all of its linked effect settings together.</value></data>
+  <data name="EffectRecipe_Source" xml:space="preserve"><value>Source: {0}</value></data>
+  <data name="EffectRecipe_Expand" xml:space="preserve"><value>Show effects</value></data>
+  <data name="EffectRecipe_Collapse" xml:space="preserve"><value>Hide effects</value></data>
+  <data name="EffectRecipe_Detach" xml:space="preserve"><value>Ungroup</value></data>
+  <data name="EffectRecipe_DetachTip" xml:space="preserve"><value>Ungroups the recipe into ordinary effects. Current values stay; the parameters go away.</value></data>
+  <data name="RecipeParams_Title" xml:space="preserve"><value>Recipe parameters - {0}</value></data>
+  <data name="RecipeParams_Edit" xml:space="preserve"><value>Edit parameters</value></data>
+  <data name="RecipeParams_EditTip" xml:space="preserve"><value>Choose which values this recipe exposes. An inserted recipe shows as one item in the effect list with only these values.</value></data>
+  <data name="RecipeParams_Parameters" xml:space="preserve"><value>Parameters</value></data>
+  <data name="RecipeParams_Add" xml:space="preserve"><value>Add</value></data>
+  <data name="RecipeParams_Remove" xml:space="preserve"><value>Remove</value></data>
+  <data name="RecipeParams_NewName" xml:space="preserve"><value>Parameter {0}</value></data>
+  <data name="RecipeParams_Name" xml:space="preserve"><value>Name</value></data>
+  <data name="RecipeParams_Settings" xml:space="preserve"><value>Linked settings</value></data>
+  <data name="RecipeParams_SettingsHint" xml:space="preserve"><value>Pick the effect settings this value changes together. One parameter can only link settings of the same kind.</value></data>
+  <data name="RecipeParams_UsedBy" xml:space="preserve"><value>Linked to {0}</value></data>
+  <data name="RecipeParams_Default" xml:space="preserve"><value>Default</value></data>
+  <data name="RecipeParams_Range" xml:space="preserve"><value>Range</value></data>
+  <data name="RecipeParams_Choices" xml:space="preserve"><value>Choices</value></data>
+  <data name="RecipeParams_Empty" xml:space="preserve"><value>No parameters yet. Press Add to expose a value.</value></data>
+  <data name="RecipeParams_Select" xml:space="preserve"><value>Select a parameter.</value></data>
+  <data name="RecipeParams_KindColor" xml:space="preserve"><value>color</value></data>
+  <data name="RecipeParams_KindInt" xml:space="preserve"><value>integer {0} to {1}</value></data>
+  <data name="RecipeParams_KindBool" xml:space="preserve"><value>on/off</value></data>
+  <data name="RecipeParams_KindChoice" xml:space="preserve"><value>choice</value></data>
+  <data name="RecipeParams_SaveError" xml:space="preserve"><value>Couldn't save the recipe parameters: {0}</value></data>
+  <data name="RecipeParams_Count" xml:space="preserve"><value>{0} parameters</value></data>
+  <data name="Assets_ContentsScripts" xml:space="preserve"><value>Script effects: {0}</value></data>
+  <data name="Assets_KindScript" xml:space="preserve"><value>Script effect</value></data>
+  <data name="Assets_ScriptNote" xml:space="preserve"><value>Contains script effects. Scripts from a package don't run until you allow them in the effects window (scripts you wrote or saved as personal assets on this computer run right away).</value></data>
+  <data name="Assets_ScriptRun" xml:space="preserve"><value>Script run</value></data>
+  <data name="Assets_ScriptRunAllowed" xml:space="preserve"><value>Allowed</value></data>
+  <data name="Assets_ScriptRunNotAllowed" xml:space="preserve"><value>Not allowed — allow it in the script settings of the effects window</value></data>
+  <data name="Assets_ScriptHash" xml:space="preserve"><value>Source hash</value></data>
+  <data name="Assets_ScriptSettingCount" xml:space="preserve"><value>{0} settings</value></data>
+  <data name="EffectPreset_ScriptTileNote" xml:space="preserve"><value>Contains script effects ({0}). They don't draw until you allow them to run.</value></data>
+  <data name="EffectPreset_ScriptTileTip" xml:space="preserve"><value>A script effect. Double-click or drag into the effect list.</value></data>
+  <data name="EffectPreset_PackageScriptTileTip" xml:space="preserve"><value>A script effect from the {0} package. Double-click or drag into the effect list.</value></data>
+  <data name="ScriptEffect_SaveAsset" xml:space="preserve"><value>Save as asset</value></data>
+  <data name="ScriptEffect_SaveAssetTip" xml:space="preserve"><value>Saves this source as a personal script asset you can reuse from the Custom tab and the asset manager and export in a package.</value></data>
+  <data name="ScriptEffect_SaveAssetNeedsTrust" xml:space="preserve"><value>Only scripts you allowed to run can be saved as personal assets.</value></data>
+  <data name="ScriptEffect_SaveAssetError" xml:space="preserve"><value>Couldn't save the script as an asset: {0}</value></data>
+  <data name="Busy_EffectBounds" xml:space="preserve"><value>Measuring effect bounds</value></data>
+  <data name="Busy_Baking" xml:space="preserve"><value>Baking effects</value></data>
+  <data name="EffectStrip_TrashTip" xml:space="preserve"><value>Drag left to mark frames red from there to the last frame; release to delete them (removed from the project when you press OK; the first frame always stays).</value></data>
+  <data name="EffectStrip_TrashTipRestore" xml:space="preserve"><value>Drag left to delete more frames. Click to bring back the {0} frames you deleted last.</value></data>
+  <data name="EffectStrip_TrimSummary" xml:space="preserve"><value>deleted the last {0} frames</value></data>
+  <data name="EffectStrip_TrimLabel" xml:space="preserve"><value>Layer effects and delete frames</value></data>
+  <data name="EffectStrip_TrashCount" xml:space="preserve"><value>{0}</value></data>
 </root>

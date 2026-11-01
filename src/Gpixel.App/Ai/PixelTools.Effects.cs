@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.IO;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
@@ -16,16 +17,9 @@ public sealed partial class PixelTools
 {
     private const string FrameRangeNote = "Omit from_frame and to_frame to cover the whole animation (also frames added later).";
 
-    /// <summary>효과 창 순서의 효과 종류: 파일 형식 이름과 효과 창 종류 번호.</summary>
-    private static (string Id, int Kind)[]? s_effectKinds;
-
-    private static (string Id, int Kind)[] EffectKinds
-        => s_effectKinds ??= Enumerable.Range(0, LayerEffectsDialog.Kinds.Length)
-            .Select(kind => (EffectSettings.TypeId(LayerEffectsDialog.Create(kind)), kind)).ToArray();
-
     private static IEnumerable<JsonObject> EffectToolDefinitions()
     {
-        var typeIds = EffectKinds.Select(k => k.Id).ToArray();
+        var typeIds = AppAssets.Catalog.BuiltInEffects.Select(d => d.TypeId).ToArray();
         yield return Tool("list_effect_types",
             "List the layer effects you can add with add_effect. Layer effects are non-destructive: they never change pixels, are drawn on top of a " +
             "layer's (or a group's composite) image in stack order, and can be changed, disabled or removed at any time. Use them for outlines, drop shadows, " +
@@ -33,7 +27,8 @@ public sealed partial class PixelTools
             "bob, appear/disappear, fade, squash, explode, melt, rotate, afterimage, color cycle, shockwave, shine and hologram. " +
             "Returns every type id with its display name and description (user's UI language), whether it animates over its frame range, its settings with " +
             "default values (keys and value formats of the .gpixel file), allowed values of choice settings, [min, max] of clamped numbers, and the user's " +
-            "saved custom effect presets (stacks of effects; the built-in presets are the effect types themselves). Works without an open project.",
+            "effect recipes available in the active asset catalog (the user's personal recipes and recipes of enabled installed asset packages; each is a stack of " +
+            "effects with order and clipping — the built-in presets are the effect types themselves). Works without an open project.",
             new JsonObject());
         yield return Tool("get_effects",
             "List the effects of a layer or group in stack order (index 0 is applied first): index, type, name, enabled, frames (\"all\" or {from,to} " +
@@ -41,15 +36,15 @@ public sealed partial class PixelTools
             "and the full settings.",
             new JsonObject { ["layer"] = Int("Layer index (normal, part or group). Default: current.", 0) });
         yield return Tool("add_effect",
-            "Add a layer effect (or a saved custom preset stack) to a normal, part or group layer. Non-destructive; one undo step. " +
+            "Add a layer effect (or an effect recipe stack) to a normal, part or group layer. Non-destructive; one undo step. " +
             "Pass either `type` with optional partial `settings` (only the keys you want to change; the rest keep the type's defaults from list_effect_types), " +
-            "or `preset` (a saved custom preset name from list_effect_types). Animated effects play across their frame range, so choose from_frame/to_frame " +
+            "or `preset` (an effect recipe name or id from list_effect_types; its effect values are copied into the layer). Animated effects play across their frame range, so choose from_frame/to_frame " +
             "for the moment it should happen (e.g. a hit flash on frames 3-4). " + FrameRangeNote + " Returns the new effect indices and the layer's effects.",
             new JsonObject
             {
                 ["layer"] = Int("Layer index (normal, part or group). Default: current.", 0),
                 ["type"] = Enum("Effect type id (see list_effect_types).", typeIds),
-                ["preset"] = Str("Saved custom effect preset name (instead of type)."),
+                ["preset"] = Str("Effect recipe name or id from list_effect_types (instead of type)."),
                 ["settings"] = EffectSettingsProp(),
                 ["from_frame"] = Int("First frame index of the effect's range (default 0).", 0),
                 ["to_frame"] = Int("Last frame index of the effect's range, inclusive (default: last frame).", 0),
@@ -119,25 +114,24 @@ public sealed partial class PixelTools
     private JsonObject ListEffectTypes()
     {
         var types = new JsonArray();
-        foreach (var (id, kind) in EffectKinds)
+        foreach (var definition in AppAssets.Catalog.BuiltInEffects)
         {
-            var effect = LayerEffectsDialog.Create(kind);
+            var ui = LayerEffectsDialog.UiOf(definition);
             var settings = new JsonObject();
             var choices = new JsonObject();
             var ranges = new JsonObject();
-            foreach (var s in EffectSettings.Describe(effect))
+            foreach (var p in definition.Parameters)
             {
-                if (s.Key == EffectSettings.GradientsKey) continue;
-                settings[s.Key] = s.Default?.DeepClone();
-                if (s.Choices is { } names) choices[s.Key] = Strings(names.ToArray());
-                if (s.Min is not null || s.Max is not null) ranges[s.Key] = new JsonArray(JsonValue.Create(s.Min), JsonValue.Create(s.Max));
+                settings[p.Key] = p.DefaultValue;
+                if (p.Choices is { } names) choices[p.Key] = Strings(names.ToArray());
+                if (p.Min is not null || p.Max is not null) ranges[p.Key] = new JsonArray(JsonValue.Create(p.Min), JsonValue.Create(p.Max));
             }
             var o = new JsonObject
             {
-                ["type"] = id,
-                ["name"] = LayerEffectsDialog.Kinds[kind],
-                ["description"] = LayerEffectsDialog.DescriptionOf(kind),
-                ["animated"] = effect is AnimatedEffect,
+                ["type"] = definition.TypeId,
+                ["name"] = ui.Name,
+                ["description"] = ui.Description,
+                ["animated"] = definition.Animated,
                 ["settings"] = settings,
             };
             if (choices.Count > 0) o["choices"] = choices;
@@ -145,15 +139,25 @@ public sealed partial class PixelTools
             types.Add(o);
         }
         var presets = new JsonArray();
-        var saved = LoadEffectPresets(out var error);
-        foreach (var preset in saved)
-            presets.Add(new JsonObject { ["name"] = preset.Name, ["effects"] = Strings(preset.Effects.Select(EffectSettings.TypeId).ToArray()) });
+        var saved = LoadEffectRecipes(out var error);
+        foreach (var entry in saved)
+        {
+            var recipe = entry.Recipe!;
+            presets.Add(new JsonObject
+            {
+                ["name"] = recipe.Name,
+                ["id"] = entry.Id,
+                ["source"] = entry.PackageId ?? "personal",
+                ["frameRange"] = recipe.FrameRange == RecipeFrameRange.AllFrames ? "allFrames" : "addRange",
+                ["effects"] = Strings(recipe.Effects.Select(EffectRegistry.TypeIdOf).ToArray()),
+            });
+        }
         var doc = new JsonObject
         {
             ["types"] = types,
             ["presets"] = presets,
             ["notes"] = "Effects render in stack order (index 0 first) and never change pixels. Pass only the settings you want to change (null resets one). " +
-                        "colorcycle colors = [\"#RRGGBB\", ...]; swap pairs = [[\"#from\", \"#to\"], ...]. Every type also accepts colorGradients " +
+                        "Color cycle colors = [\"#RRGGBB\", ...]; palette swap pairs = [[\"#from\", \"#to\"], ...]. Every type also accepts colorGradients " +
                         "(advanced: per color key gradient objects in the .gpixel format). Animated effects run once over their frame range; easing, repeat and repeatCount change that.",
         };
         if (error is not null) doc["presetsError"] = error;
@@ -177,7 +181,7 @@ public sealed partial class PixelTools
             effects.Add(new JsonObject
             {
                 ["index"] = i,
-                ["type"] = EffectSettings.TypeId(e),
+                ["type"] = EffectRegistry.TypeIdOf(e),
                 ["name"] = e.DisplayName,
                 ["enabled"] = e.Enabled,
                 ["frames"] = e.Frames is { } r ? new JsonObject { ["from"] = r.From, ["to"] = r.To } : (JsonNode)"all",
@@ -214,24 +218,25 @@ public sealed partial class PixelTools
         IReadOnlyList<string> clamped = [];
         if (!string.IsNullOrEmpty(type))
         {
-            var kind = EffectKinds.FirstOrDefault(k => k.Id.Equals(type, StringComparison.OrdinalIgnoreCase));
-            if (kind.Id is null)
-                throw new ToolError(UiStrings.FormatAi_Effect_UnknownType(type: type, types: string.Join(", ", EffectKinds.Select(k => k.Id))));
-            var (effect, adjusted) = MergeSettings(LayerEffectsDialog.Create(kind.Kind), settings);
+            var definition = EffectRegistry.Resolve(type)
+                             ?? throw new ToolError(UiStrings.FormatAi_Effect_UnknownType(type: type, types: string.Join(", ", AppAssets.Catalog.BuiltInEffects.Select(d => d.TypeId))));
+            var (effect, adjusted) = MergeSettings(definition.Create(), settings);
             clamped = adjusted;
             added = [effect with { Frames = range, Enabled = enabled, ClipToPrevious = clip }];
         }
         else
         {
             if (settings is not null) throw new ToolError(UiStrings.Ai_Effect_PresetSettings);
-            var presets = LoadEffectPresets(out var error);
-            if (error is not null) throw new ToolError(UiStrings.FormatAi_Effect_PresetLoad(error: error));
-            var preset = presets.FirstOrDefault(x => x.Name == presetName)
-                         ?? presets.FirstOrDefault(x => x.Name.Equals(presetName, StringComparison.OrdinalIgnoreCase))
-                         ?? throw new ToolError(presets.Count == 0
-                             ? UiStrings.Ai_Effect_NoPresets
-                             : UiStrings.FormatAi_Effect_UnknownPreset(name: presetName, presets: string.Join(", ", presets.Select(x => $"\"{x.Name}\""))));
-            added = preset.Instantiate(range).Select((effect, i) => effect with
+            var presets = LoadEffectRecipes(out var error);
+            var preset = (presets.FirstOrDefault(x => x.Id == presetName)
+                          ?? presets.FirstOrDefault(x => x.Name == presetName)
+                          ?? presets.FirstOrDefault(x => x.Name.Equals(presetName, StringComparison.OrdinalIgnoreCase)))?.Recipe;
+            if (preset is null && error is not null) throw new ToolError(UiStrings.FormatAi_Effect_PresetLoad(error: error));
+            if (preset is null)
+                throw new ToolError(presets.Count == 0
+                    ? UiStrings.Ai_Effect_NoPresets
+                    : UiStrings.FormatAi_Effect_UnknownPreset(name: presetName, presets: string.Join(", ", presets.Select(x => $"\"{x.Name}\""))));
+            added = preset.Instantiate(p, range).Select((effect, i) => effect with
             {
                 Enabled = enabled,
                 ClipToPrevious = i == 0 ? clip : effect.ClipToPrevious,
@@ -243,7 +248,7 @@ public sealed partial class PixelTools
         p.Edit(Label(tool), ProjectChange.Layers, () => p.SetLayerEffects(index, list));
         Ctx.SetCurrentLayer(index);
         var indices = added.Count == 1 ? $"{at}" : $"{at}-{at + added.Count - 1}";
-        var what = string.Join(", ", added.Select(EffectSettings.TypeId));
+        var what = string.Join(", ", added.Select(EffectRegistry.TypeIdOf));
         return EffectResult(UiStrings.FormatAi_Effect_Added(tool: tool, effects: what, layer: index, name: layer.Name, indices: indices) + ClampedNote(clamped), p, index);
     }
 
@@ -286,7 +291,7 @@ public sealed partial class PixelTools
         }
         p.Edit(Label(tool), ProjectChange.Layers, () => p.SetLayerEffects(index, list));
         Ctx.SetCurrentLayer(index);
-        return EffectResult(UiStrings.FormatAi_Effect_Changed(tool: tool, effect: position, type: EffectSettings.TypeId(changed), layer: index, name: layer.Name)
+        return EffectResult(UiStrings.FormatAi_Effect_Changed(tool: tool, effect: position, type: EffectRegistry.TypeIdOf(changed), layer: index, name: layer.Name)
                             + ClampedNote(clamped), p, index);
     }
 
@@ -301,7 +306,7 @@ public sealed partial class PixelTools
         var list = EffectStack.Remove(layer.Effects, new HashSet<int> { e });
         p.Edit(Label(tool), ProjectChange.Layers, () => p.SetLayerEffects(index, list));
         Ctx.SetCurrentLayer(index);
-        return EffectResult(UiStrings.FormatAi_Effect_Removed(tool: tool, effect: e, type: EffectSettings.TypeId(removed), layer: index, name: layer.Name), p, index);
+        return EffectResult(UiStrings.FormatAi_Effect_Removed(tool: tool, effect: e, type: EffectRegistry.TypeIdOf(removed), layer: index, name: layer.Name), p, index);
     }
 
     private JsonObject ApplyEffects(string tool, JsonObject? a)
@@ -377,19 +382,15 @@ public sealed partial class PixelTools
 
     // ───────────── 인자·결과 ─────────────
 
-    /// <summary>사용자 정의 효과(효과 창과 같은 파일). 읽지 못하면 빈 목록과 까닭.</summary>
-    private static List<EffectPreset> LoadEffectPresets(out string? error)
+    /// <summary>
+    /// 활성 카탈로그의 효과 레시피(효과 창 커스텀 탭과 같은 목록 — 개인 에셋과 켜진 패키지). 개인 에셋을 읽지 못했으면 그 까닭도 준다
+    /// (설치 패키지의 레시피는 그대로 쓸 수 있음).
+    /// </summary>
+    private static IReadOnlyList<Gpixel.Core.Assets.AssetEntry> LoadEffectRecipes(out string? error)
     {
-        error = null;
-        try
-        {
-            return EffectPresets.Load(LayerEffectsDialog.PresetPath);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            error = ex.Message;
-            return [];
-        }
+        var store = AppAssets.Store;
+        error = store.PersonalError;
+        return store.Catalog.Recipes;
     }
 
     /// <summary>효과 번호 인자(<c>effect</c>, 필수). 효과가 없는 레이어면 도구 오류.</summary>
@@ -463,7 +464,7 @@ public sealed partial class PixelTools
             var key = e.Key;
             throw new ToolError(e.Error switch
             {
-                EffectSettingError.UnknownKey => UiStrings.FormatAi_Effect_SettingUnknown(key: key, type: EffectSettings.TypeId(effect), keys: e.Detail),
+                EffectSettingError.UnknownKey => UiStrings.FormatAi_Effect_SettingUnknown(key: key, type: EffectRegistry.TypeIdOf(effect), keys: e.Detail),
                 EffectSettingError.ReservedKey => UiStrings.FormatAi_Effect_SettingReserved(key: key),
                 EffectSettingError.WrongType => UiStrings.FormatAi_Effect_SettingWrongType(key: key, example: SettingExample(effect, key)),
                 EffectSettingError.NotAChoice => UiStrings.FormatAi_Effect_SettingChoice(key: key, choices: e.Detail),
@@ -478,7 +479,7 @@ public sealed partial class PixelTools
     private static string SettingExample(LayerEffect effect, string key)
     {
         var setting = EffectSettings.Describe(effect).FirstOrDefault(s => s.Key == key);
-        return setting?.Default?.ToJsonString(JsonOptions) ?? (setting?.Kind == EffectSettingKind.List ? "[]" : "{}");
+        return setting?.DefaultValue.ToJsonString(JsonOptions) ?? "{}";
     }
 
     private static string ClampedNote(IReadOnlyList<string> clamped)

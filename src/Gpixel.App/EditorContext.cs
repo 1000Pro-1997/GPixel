@@ -1,5 +1,6 @@
 using Gpixel.Core.Edit;
 using Gpixel.Core.Model;
+using Gpixel.Core.Scripting;
 using Gpixel.App.Localization;
 
 namespace Gpixel.App;
@@ -62,10 +63,11 @@ public sealed class EditorContext
     private PixelImage? _strokeImage;
     private WriteableBitmap? _blankBitmap;
 
-    // 프레임 합성 캐시, 부위 하나를 뺀 프레임 합성 캐시, 셀(그룹이면 그룹 합성) 썸네일 캐시
-    private readonly Dictionary<Frame, (PixelImage Image, WriteableBitmap Bitmap)> _compositeCache = new();
-    private readonly Dictionary<(Frame, Layer), WriteableBitmap> _contextCache = new();
-    private readonly Dictionary<(Layer, Frame), WriteableBitmap> _celCache = new();
+    // 프레임 합성·부위 하나 뺀 합성·셀(그룹이면 그룹 합성)·타임라인 썸네일 결과(가벼우면 바로, 무거우면 작업 스레드에서 계산)
+    private readonly RenderService _renders = new();
+    // 무효화를 레이어 단위로 하려고 기억해 두는 레이어별 그리기 상태와 프레임 차례
+    private LayerRenderState[] _layerStates = [];
+    private Frame[] _frameOrder = [];
 
     public SpriteProject? Project { get; private set; }
     public bool HasProject => Project is not null;
@@ -78,6 +80,10 @@ public sealed class EditorContext
     {
         // 선택 영역 떼기·내려놓기는 셀 픽셀을 직접 바꾼다.
         Selection.Changed += (_, _) => InvalidateCurrent();
+        _renders.Updated += () => RenderUpdated?.Invoke(this, EventArgs.Empty);
+        // 스크립트 효과: 실행 허락·멈춤 해제로 같은 효과 값의 결과가 달라지면 다시 그리고, 실패 표시만 바뀌면 화면만 다시 그린다(작업 스레드에서도 옴).
+        ScriptLibrary.Changed += () => Dispatcher.UIThread.Post(RerenderScripts);
+        ScriptEffectRuntime.StatusChanged += () => Dispatcher.UIThread.Post(() => ViewChanged?.Invoke(this, EventArgs.Empty));
     }
 
     /// <summary>다른 프로젝트가 열리거나 닫힘.</summary>
@@ -95,6 +101,8 @@ public sealed class EditorContext
     public event EventHandler? RecentColorsChanged;
     public event EventHandler? OnionSkinChanged;
     public event EventHandler? UndoChanged;
+    /// <summary>작업 스레드에서 계산하던 합성 결과·중간 그림이 왔거나 회색 덮개를 씌울 때(캔버스·타임라인·미리보기 다시 그리기).</summary>
+    public event EventHandler? RenderUpdated;
 
     // ───────────── 도구·색 ─────────────
 
@@ -361,8 +369,10 @@ public sealed class EditorContext
         Selection.Deselect(_blank ?? new PixelImage(1, 1));
         _selectionStrokeOpen = false;
         _strokeImage = null;
-        ClearCaches();
+        _renders.Reset();
+        _renders.CheckpointLayer = null;
         Project = project;
+        RememberRenderState(project);
         _layer = project is null ? 0 : project.Layers.Count - 1;
         _frame = 0;
         _canvasSize = CurrentCanvasSize;
@@ -388,12 +398,12 @@ public sealed class EditorContext
     private void OnProjectChanged(object? sender, ProjectChangedEventArgs e)
     {
         var p = Project!;
-        // 스트로크 중에는 현재 셀만 바뀐다. 그 밖의 변경(실행취소, 부위 위치·크기, 스킨 고르기·추가·삭제 등)은 모든 캐시를 버린다.
-        // 캐시 키(레이어, 프레임)는 그룹의 지금 스킨 기준이므로 스킨이 바뀌면(Layers | Pixels) 반드시 비워야 한다.
-        if (e.Change == ProjectChange.Pixels && p.IsStrokeActive) InvalidateCurrent();
+        // 스트로크 중에는 현재 셀만 바뀐다. 그 밖의 변경은 바뀐 것을 보고 결과를 무효로 한다(효과만 바뀐 레이어면 그 레이어가 들어간 결과만).
+        // 결과 키(레이어, 프레임)는 그룹의 지금 스킨 기준이므로 스킨이 바뀌면(Layers | Pixels) 모두 무효로 한다.
+        if (e.Change == ProjectChange.Pixels && p.IsStrokeActive) InvalidateCurrent(stroking: true);
         else if ((e.Change & ~ProjectChange.Path & ~ProjectChange.Settings) != 0)
         {
-            ClearCaches();
+            InvalidateRenders(p, e.Change);
             SyncCanvasResize();
         }
         int layer = Math.Clamp(_layer, 0, p.Layers.Count - 1), frame = Math.Clamp(_frame, 0, p.Frames.Count - 1);
@@ -558,7 +568,7 @@ public sealed class EditorContext
     public void NotifyPixels()
     {
         if (Project is null) return;
-        InvalidateCurrent();
+        InvalidateCurrent(stroking: Project.IsStrokeActive);
         Project.NotifyPixelsChanged();
     }
 
@@ -984,8 +994,8 @@ public sealed class EditorContext
         if (Project is null) return UiStrings.S_EditorContext_BeginCanvasResize_9D67D0C8F0;
         if (_canvasResize is not null) return null;
         CommitFloating();
-        if (CompositeEntry(_frame) is not { } entry) return UiStrings.S_EditorContext_BeginCanvasResize_1378D58776;
-        _canvasResize = new CanvasResizeSession(entry.Image);
+        if (FrameImage(_frame) is not { } image) return UiStrings.S_EditorContext_BeginCanvasResize_1378D58776;
+        _canvasResize = new CanvasResizeSession(image);
         CanvasResizeChanged?.Invoke(this, EventArgs.Empty);
         return null;
     }
@@ -1038,12 +1048,12 @@ public sealed class EditorContext
     private void SyncCanvasResize()
     {
         if (_canvasResize is not { } s || Project is not { } p) return;
-        if (p.Size != s.Source.Size || CompositeEntry(_frame) is not { } entry)
+        if (p.Size != s.Source.Size || FrameImage(_frame) is not { } image)
         {
             CancelCanvasResize();
             return;
         }
-        s.Source = entry.Image;
+        s.Source = image;
         DropCanvasResizePreview(s);
         CanvasResizeChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -1178,105 +1188,179 @@ public sealed class EditorContext
         else p.Edit(UiStrings.S_EditorContext_CommitPivot_463E10A971, ProjectChange.Settings, () => p.Sprite.DefaultPivot = after);
     }
 
-    // ───────────── 합성 비트맵 캐시 ─────────────
+    // ───────────── 합성 결과(RenderService) ─────────────
 
-    private void ClearCaches()
+    /// <summary>레이어 하나의 그리기에 영향을 주는 상태(이름·잠금 같은 것은 빠짐).</summary>
+    private readonly record struct LayerRenderState(Layer Layer, LayerKind Kind, Layer? Parent, bool Visible, byte Opacity,
+        IReadOnlyList<LayerEffect> Effects, Point Offset, Size PartSize, Skin? Shown)
     {
-        foreach (var (_, b) in _compositeCache.Values) b.Dispose();
-        _compositeCache.Clear();
-        foreach (var b in _contextCache.Values) b.Dispose();
-        _contextCache.Clear();
-        foreach (var b in _celCache.Values) b.Dispose();
-        _celCache.Clear();
+        public static LayerRenderState Of(Layer l) => new(l, l.Kind, l.Parent, l.Visible, l.Opacity, l.Effects, l.PartOffset, l.PartSize, l.ShownSkin);
+
+        /// <summary>효과 목록 말고는 같은지.</summary>
+        public bool SameExceptEffects(LayerRenderState other) => this with { Effects = other.Effects } == other;
+
+        /// <summary>
+        /// 그리기가 같은지: 효과 목록은 내용으로 비교한다(효과 창 확인·타임라인 끌기를 놓으면 미리보던 것과 같은 효과가 새 배열로 들어온다 —
+        /// 참조로 비교하면 방금 다 그린 모든 프레임을 다시 계산했다).
+        /// </summary>
+        public bool SameRender(LayerRenderState other)
+            => this == other || SameExceptEffects(other) && Effects.SequenceEqual(other.Effects);
+    }
+
+    private void RememberRenderState(SpriteProject? p)
+    {
+        _layerStates = p is null ? [] : p.Layers.Select(LayerRenderState.Of).ToArray();
+        _frameOrder = p is null ? [] : p.Frames.ToArray();
     }
 
     /// <summary>
-    /// 현재 셀이 바뀜(스트로크 중): 현재 프레임의 합성, 현재 레이어가 들어간 "부위 하나 뺀 합성",
-    /// 현재 셀과 그 그룹의 썸네일 캐시를 버린다.
+    /// 스트로크가 아닌 변경: 캔버스 크기가 바뀌면 모두 버리고, 셀 픽셀·프레임·레이어 구조가 바뀌면 모두 무효로 한다(그림은 다시 계산될 때까지 보임).
+    /// 레이어 속성만 바뀌었으면 바뀐 레이어(와 그 그룹)의 셀·썸네일과 프레임 합성만 무효로 하고, 효과 목록만 바뀌었으면 효과 결과 캐시도 그대로 쓴다.
+    /// 이름·잠금처럼 그리기와 관계없는 변경은 아무것도 무효로 하지 않는다.
     /// </summary>
-    private void InvalidateCurrent()
+    private void InvalidateRenders(SpriteProject p, ProjectChange change)
+    {
+        var before = _layerStates;
+        var frames = _frameOrder;
+        RememberRenderState(p);
+        if ((change & ProjectChange.Canvas) != 0)
+        {
+            _renders.Reset();
+            return;
+        }
+        bool sameStructure = before.Length == _layerStates.Length && frames.Length == _frameOrder.Length
+            && before.Zip(_layerStates).All(t => ReferenceEquals(t.First.Layer, t.Second.Layer))
+            && frames.Zip(_frameOrder).All(t => ReferenceEquals(t.First, t.Second));
+        if (!sameStructure || (change & (ProjectChange.Pixels | ProjectChange.Frames)) != 0)
+        {
+            _renders.Effects.Clear();
+            _renders.CheckpointLayer = null;
+            _renders.InvalidateAll();
+            return;
+        }
+        var changed = new HashSet<Layer>();
+        bool effectsOnly = true;
+        for (int i = 0; i < before.Length; i++)
+        {
+            if (before[i].SameRender(_layerStates[i])) continue;
+            changed.Add(before[i].Layer);
+            if (before[i].Layer.Parent is { } parent) changed.Add(parent);
+            effectsOnly &= before[i].SameExceptEffects(_layerStates[i]);
+        }
+        if (changed.Count == 0) return;
+        if (!effectsOnly) _renders.Effects.Clear();
+        // 효과만 바뀐 레이어 하나(효과 창에서 값을 바꾸는 중): 지금 프레임 합성에서 효과 1~k 중간 결과를 담아 다음 변경 때 이어 그린다.
+        _renders.CheckpointLayer = effectsOnly ? changed.FirstOrDefault(l => before.Any(s => ReferenceEquals(s.Layer, l) && !ReferenceEquals(s.Effects, l.Effects))) : null;
+        _renders.Invalidate(k => k.Kind is RenderKind.Composite or RenderKind.Context || k.Layer is { } l && changed.Contains(l));
+    }
+
+    /// <summary>
+    /// 스크립트 실행 허락·멈춤 해제: 효과 값은 같아도 결과가 달라지므로 효과 결과 캐시를 비우고 모든 결과를 무효로 한다(그림은 다시 계산될 때까지 보임).
+    /// </summary>
+    private void RerenderScripts()
+    {
+        if (Project is null) return;
+        _renders.Effects.Clear();
+        _renders.CheckpointLayer = null;
+        _renders.InvalidateAll();
+        ViewChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// 현재 셀이 바뀜: 현재 프레임의 합성, 현재 레이어가 들어간 "부위 하나 뺀 합성", 현재 셀과 그 그룹의 셀·썸네일을 무효로 한다.
+    /// 셀 픽셀을 그 자리에서 고치므로 그 셀을 담은 효과 결과 캐시도 비운다. 잔상이 있으면 다른 프레임 합성도 이 셀을 보므로 무효로 한다 —
+    /// 다만 그리는 중(<paramref name="stroking"/>)에는 다른 프레임은 두고 지금 프레임만 다시 그린다(포인터가 움직일 때마다 모든 프레임을 다시 계산해
+    /// 코어를 다 쓰지 않게). 그리기를 마치면(<see cref="SpriteProject.CommitCelStroke"/>) 모두 무효가 된다.
+    /// </summary>
+    private void InvalidateCurrent(bool stroking = false)
     {
         if (Project is not { } p || _frame < 0 || _frame >= p.Frames.Count || _layer < 0 || _layer >= p.Layers.Count) return;
         var frame = p.Frames[_frame];
         var layer = p.Layers[_layer];
-        if (_compositeCache.Remove(frame, out var entry)) entry.Bitmap.Dispose();
-        foreach (var key in _contextCache.Keys.Where(k => k.Item1 == frame && k.Item2 != layer).ToList())
+        var group = layer.Parent;
+        bool others = !stroking && (LayerEffects.UsesOtherFrames(layer.Effects) || group is not null && LayerEffects.UsesOtherFrames(group.Effects));
+        _renders.Effects.Clear();
+        _renders.CheckpointLayer = null;
+        _renders.Invalidate(k => k.Kind switch
         {
-            _contextCache[key].Dispose();
-            _contextCache.Remove(key);
-        }
-        RemoveCel(layer, frame);
-        if (layer.Parent is { } group) RemoveCel(group, frame);
+            RenderKind.Composite => others || ReferenceEquals(k.Frame, frame),
+            RenderKind.Context => ReferenceEquals(k.Frame, frame) && !ReferenceEquals(k.Layer, layer),
+            _ => ReferenceEquals(k.Frame, frame) && (ReferenceEquals(k.Layer, layer) || group is not null && ReferenceEquals(k.Layer, group))
+                 || others && (ReferenceEquals(k.Layer, layer) || group is not null && ReferenceEquals(k.Layer, group)),
+        });
     }
 
-    private void RemoveCel(Layer layer, Frame frame)
+    /// <summary>
+    /// 프레임 전체 합성(보이는 레이어·그룹)의 그릴 것. 무거우면 작업 스레드에서 계산하는 동안 이전 결과(<paramref name="live"/>면 중간 그림)를 준다.
+    /// 비트맵은 호출자가 Dispose하지 않는다.
+    /// </summary>
+    public RenderView FrameView(int frame, RenderPriority priority = RenderPriority.Background, bool live = false)
     {
-        if (_celCache.Remove((layer, frame), out var bmp)) bmp.Dispose();
+        if (Project is not { } p || frame < 0 || frame >= p.Frames.Count) return RenderView.None;
+        return _renders.Get(new RenderKey(RenderKind.Composite, p.Frames[frame]), priority, () => p.PlanFrame(frame), live);
     }
 
-    /// <summary>프레임 합성 이미지와 비트맵(캐시).</summary>
-    private (PixelImage Image, WriteableBitmap Bitmap)? CompositeEntry(int frame)
+    /// <summary>프레임 전체 합성 비트맵(계산 중이면 이전 결과). 호출자는 Dispose하지 않는다.</summary>
+    public WriteableBitmap? FrameBitmap(int frame, RenderPriority priority = RenderPriority.Background) => FrameView(frame, priority).Bitmap;
+
+    /// <summary>프레임 <paramref name="frame"/>의 최신 합성이 준비되었는지(재생이 기다릴지 정할 때).</summary>
+    public bool IsFrameReady(int frame) => Project is { } p && frame >= 0 && frame < p.Frames.Count
+        && _renders.IsReady(new RenderKey(RenderKind.Composite, p.Frames[frame]));
+
+    /// <summary>
+    /// 프레임 전체 합성 그림(미리보기가 그리는 그대로, 최신 — 없으면 지금 계산). 캐시라서 호출자는 고치지 않는다.
+    /// </summary>
+    public PixelImage? FrameImage(int frame)
     {
         if (Project is not { } p || frame < 0 || frame >= p.Frames.Count) return null;
-        var owner = p.Frames[frame];
-        if (_compositeCache.TryGetValue(owner, out var entry)) return entry;
-        var img = new PixelImage(p.Width, p.Height);
-        p.FlattenInto(img, frame);
-        entry = (img, ImageUtil.ToBitmap(img));
-        _compositeCache[owner] = entry;
-        return entry;
+        return _renders.GetImage(new RenderKey(RenderKind.Composite, p.Frames[frame]), () => p.PlanFrame(frame));
     }
-
-    /// <summary>프레임 전체 합성(보이는 레이어·그룹) 비트맵. 호출자는 Dispose하지 않는다.</summary>
-    public WriteableBitmap? FrameBitmap(int frame) => CompositeEntry(frame)?.Bitmap;
-
-    /// <summary>프레임 전체 합성 그림(미리보기가 그리는 그대로). 캐시라서 호출자는 고치지 않는다.</summary>
-    public PixelImage? FrameImage(int frame) => CompositeEntry(frame)?.Image;
 
     /// <summary>
     /// 캔버스에 보이는 그림: 부위를 골랐으면 그 부위의 셀(부위 크기, 빈 셀이면 null), 아니면 프레임 전체 합성.
     /// 이전 프레임 보기·양파 껍질에 쓴다. 호출자는 Dispose하지 않는다.
     /// </summary>
-    public WriteableBitmap? ViewBitmap(int frame) => CurrentPart is not null ? CelBitmap(_layer, frame) : FrameBitmap(frame);
+    public WriteableBitmap? ViewBitmap(int frame, RenderPriority priority = RenderPriority.Soon)
+        => CurrentPart is not null ? CelView(_layer, frame, priority).Bitmap : FrameView(frame, priority).Bitmap;
 
-    /// <summary>현재 캔버스 그림: 부위면 그 부위의 현재 셀(빈 셀이면 투명), 아니면 현재 프레임 합성.</summary>
-    public WriteableBitmap? DisplayBitmap
+    /// <summary>
+    /// 현재 캔버스 그림: 부위면 그 부위의 현재 셀, 아니면 현재 프레임 합성(계산 중이면 중간 그림·진행·덮개 여부).
+    /// 부위 셀이 비었으면 투명 비트맵.
+    /// </summary>
+    public RenderView DisplayView
     {
         get
         {
-            if (Project is null) return null;
-            if (ViewBitmap(_frame) is { } bmp) return bmp;
-            if (CurrentPart is null) return null;
+            if (Project is null) return RenderView.None;
+            if (CurrentPart is null) return FrameView(_frame, RenderPriority.Current, live: true);
+            var view = CelView(_layer, _frame, RenderPriority.Current);
+            if (view.Bitmap is not null) return view;
             int w = Math.Max(1, CanvasWidth), h = Math.Max(1, CanvasHeight);
             if (_blankBitmap is null || _blankBitmap.PixelSize.Width != w || _blankBitmap.PixelSize.Height != h)
             {
                 _blankBitmap?.Dispose();
                 _blankBitmap = ImageUtil.NewBitmap(w, h);
             }
-            return _blankBitmap;
+            return view with { Bitmap = _blankBitmap };
         }
     }
 
     /// <summary>
-    /// 프레임 합성에서 부위 하나(<paramref name="exclude"/>)를 뺀 비트맵(프레임 크기, 캐시). 부위 화면의 흐린 주변,
+    /// 프레임 합성에서 부위 하나(<paramref name="exclude"/>)를 뺀 비트맵(프레임 크기). 부위 화면의 흐린 주변,
     /// 그룹 화면에서 부위를 끄는 동안의 배경에 쓴다. 호출자는 Dispose하지 않는다.
     /// </summary>
     public WriteableBitmap? ContextBitmap(int frame, Layer exclude)
     {
         if (Project is not { } p || frame < 0 || frame >= p.Frames.Count) return null;
-        var key = (p.Frames[frame], exclude);
-        if (_contextCache.TryGetValue(key, out var bmp)) return bmp;
-        var img = new PixelImage(p.Width, p.Height);
-        p.FlattenInto(img, frame, layerFilter: l => !ReferenceEquals(l, exclude));
-        bmp = ImageUtil.ToBitmap(img);
-        _contextCache[key] = bmp;
-        return bmp;
+        return _renders.Get(new RenderKey(RenderKind.Context, p.Frames[frame], exclude), RenderPriority.Current,
+            () => p.PlanFrame(frame, layerFilter: l => !ReferenceEquals(l, exclude))).Bitmap;
     }
 
     /// <summary>
     /// 현재 캔버스에서 보이는 색. 부위 화면이면 부위 셀의 색(투명이면 그 자리의 프레임 합성 색), 아니면 프레임 합성 색.
+    /// <paramref name="exact"/>가 false면(상태 표시줄) 계산 중일 때 이전 결과의 색을 쓰고 기다리지 않는다.
     /// </summary>
-    public Color32 CompositeColorAt(int x, int y)
+    public Color32 CompositeColorAt(int x, int y, bool exact = true)
     {
         if (CurrentPart is { } part)
         {
@@ -1285,7 +1369,9 @@ public sealed class EditorContext
             x += part.PartOffset.X;
             y += part.PartOffset.Y;
         }
-        return CompositeEntry(_frame) is { } entry && entry.Image.Contains(x, y) ? entry.Image.Get(x, y) : Color32.Transparent;
+        var image = exact ? FrameImage(_frame)
+            : Project is { } p && _frame < p.Frames.Count ? _renders.ShownImage(new RenderKey(RenderKind.Composite, p.Frames[_frame])) : null;
+        return image is not null && image.Contains(x, y) ? image.Get(x, y) : Color32.Transparent;
     }
 
     /// <summary>
@@ -1296,8 +1382,7 @@ public sealed class EditorContext
     {
         int w = Math.Max(1, CanvasWidth), h = Math.Max(1, CanvasHeight);
         var img = new PixelImage(w, h);
-        if (CompositeEntry(_frame) is not { } entry) return img;
-        var frame = entry.Image;
+        if (FrameImage(_frame) is not { } frame) return img;
         if (CurrentPart is not { } part)
         {
             img.CopyFrom(frame);
@@ -1316,23 +1401,25 @@ public sealed class EditorContext
     }
 
     /// <summary>
-    /// 셀 하나(레이어 × 프레임)의 비트맵: 그룹이면 그 그룹의 합성(프레임 크기, 그룹 효과 포함), 일반 레이어면 효과를 입힌 셀(캔버스 크기로 잘림),
-    /// 부위면 셀 그대로(부위 화면에서 고치는 그림이라 효과 없이). 빈 셀(그룹이면 모든 부위가 빈 셀)이면 null. 호출자는 Dispose하지 않는다.
+    /// 셀 하나(레이어 × 프레임)의 그릴 것(원본 크기): 그룹이면 그 그룹의 합성(프레임 크기, 그룹 효과 포함), 일반 레이어면 효과를 입힌 셀(셀 크기로 잘림),
+    /// 부위면 셀 그대로(부위 화면에서 고치는 그림이라 효과 없이). 빈 셀(그룹이면 모든 부위가 빈 셀)이면 비트맵이 null.
     /// </summary>
-    public WriteableBitmap? CelBitmap(int layer, int frame)
+    public RenderView CelView(int layer, int frame, RenderPriority priority = RenderPriority.Background)
     {
-        if (Project is not { } p || frame < 0 || frame >= p.Frames.Count || layer < 0 || layer >= p.Layers.Count) return null;
-        var l = p.Layers[layer];
-        var key = (l, p.Frames[frame]);
-        if (_celCache.TryGetValue(key, out var bmp)) return bmp;
-        PixelImage? img;
-        if (l.IsGroup)
-            img = p.ChildrenOf(l).Any(c => p.GetCel(c, p.Frames[frame]) is not null) ? p.FlattenGroup(l, frame) : null;
-        else if (p.GetCel(layer, frame) is { } cel) img = l.IsPart ? cel : LayerEffects.RenderClipped(cel, p.EffectsAt(l, frame));
-        else img = null;
-        if (img is null) return null;
-        bmp = ImageUtil.ToBitmap(img);
-        _celCache[key] = bmp;
-        return bmp;
+        if (Project is not { } p || frame < 0 || frame >= p.Frames.Count || layer < 0 || layer >= p.Layers.Count) return RenderView.None;
+        return _renders.Get(new RenderKey(RenderKind.Cel, p.Frames[frame], p.Layers[layer]), priority, () => p.PlanCel(layer, frame));
+    }
+
+    /// <summary><see cref="CelView"/>의 비트맵. 호출자는 Dispose하지 않는다.</summary>
+    public WriteableBitmap? CelBitmap(int layer, int frame) => CelView(layer, frame).Bitmap;
+
+    /// <summary>
+    /// 타임라인 칸 썸네일: <see cref="CelView"/>와 같은 그림을 긴 변 <see cref="RenderService.ThumbMaxSize"/>px 이하로 줄인 것
+    /// (<see cref="RenderView.SourceWidth"/>·<see cref="RenderView.SourceHeight"/>는 원래 크기).
+    /// </summary>
+    public RenderView CelThumbnail(int layer, int frame)
+    {
+        if (Project is not { } p || frame < 0 || frame >= p.Frames.Count || layer < 0 || layer >= p.Layers.Count) return RenderView.None;
+        return _renders.Get(new RenderKey(RenderKind.Thumb, p.Frames[frame], p.Layers[layer]), RenderPriority.Background, () => p.PlanCel(layer, frame));
     }
 }

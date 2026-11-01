@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "summary": "A white flash with a decaying shake for the frames where a character takes damage.",
+  "tags": [
+    "effect",
+    "starter",
+    "official"
+  ],
+  "review": "official",
+  "published": "2026-10-28",
+  "updated": "2026-10-28"
+}

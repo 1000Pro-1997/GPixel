@@ -41,8 +41,22 @@ public sealed partial class LayerEffectsDialog
     /// <summary>프레임 줄을 누른 때의 늘리기와 칸 수(끄는 동안 칸 번호를 그때 차례로 읽는다).</summary>
     private (FrameExtension? Extension, int Cells) _dragBase;
 
-    /// <summary>늘린 뒤(미리보기) 프레임 수.</summary>
-    private int VirtualCount => _project.Frames.Count + (_extension?.Added ?? 0);
+    /// <summary>프레임 줄 끝의 지우기 칸으로 지우기로 한 뒤 프레임 수(늘린 뒤 차례의 끝에서부터, 확인할 때 지움). 첫 프레임은 늘 남는다.</summary>
+    private int _trim;
+    /// <summary>
+    /// 지우기 칸을 눌러 되돌릴 수 있는 프레임 수: 마지막으로 지운 한 번만(그 전에 지운 것은 되돌릴 수 없음). 지운 뒤 프레임을 늘리면 0 —
+    /// 지운 프레임은 버려지고 늘린 프레임은 새로 더해진다.
+    /// </summary>
+    private int _restorable;
+
+    /// <summary>늘린 뒤 프레임 수(지우기 전).</summary>
+    private int ExtendedCount => _project.Frames.Count + (_extension?.Added ?? 0);
+
+    /// <summary>실제로 지울 뒤 프레임 수(늘리기가 줄어도 첫 프레임은 남게).</summary>
+    private int Trim => Math.Clamp(_trim, 0, ExtendedCount - 1);
+
+    /// <summary>늘리고 뒤를 지운 뒤(미리보기) 프레임 수.</summary>
+    private int VirtualCount => ExtendedCount - Trim;
 
     /// <summary>미리보기 프레임 번호 → 원래 프레임 번호.</summary>
     private int OriginalOf(int frame) => _extension?.OriginalFrame(frame) ?? frame;
@@ -62,13 +76,67 @@ public sealed partial class LayerEffectsDialog
         return (r.From, r.To);
     }
 
-    /// <summary>효과 목록(범위를 늘린 뒤 번호로) — 미리보기와 확정에 쓴다.</summary>
+    /// <summary>
+    /// 효과 목록(범위를 늘린 뒤 번호로, 지울 뒤 프레임은 뺀 범위로) — 미리보기와 확정에 쓴다. 차례는 <see cref="_effects"/>와 같다:
+    /// 범위가 모두 지워지는 효과는 꺼서 남기고(확정 때 <see cref="CommitEffects"/>가 뺀다), 걸치는 효과는 남는 끝까지로 줄인다 — 프로젝트의 프레임 삭제와 같은 규칙.
+    /// </summary>
     private IReadOnlyList<LayerEffect> VirtualEffects()
-        => _extension is not { } x
+    {
+        IReadOnlyList<LayerEffect> list = _extension is not { } x
             ? _effects
             : _effects.Select(e => _virtualRangeOverrides.TryGetValue(e, out var direct)
                 ? e with { Frames = direct }
                 : e.Frames is { } r ? e with { Frames = x.MapRange(r) } : e).ToArray();
+        if (Trim == 0) return list;
+        int last = VirtualCount - 1;
+        return list.Select(e => e.Frames is not { } r || r.To <= last ? e
+            : r.From > last ? e with { Enabled = false, Frames = new FrameRange(last, last) }
+            : e with { Frames = new FrameRange(r.From, last) }).ToArray();
+    }
+
+    /// <summary>효과 <paramref name="index"/>의 범위가 지울 뒤 프레임 안에만 있어 확정 때 없어지는지.</summary>
+    private bool TrimmedAway(int index)
+        => Trim > 0 && index >= 0 && index < _effects.Count && _effects[index].Frames is not null && VRangeOf(_effects[index]).From >= VirtualCount;
+
+    /// <summary>확정할 효과 목록: <see cref="VirtualEffects"/>에서 지울 프레임과 함께 없어지는 효과를 뺀다.</summary>
+    private IReadOnlyList<LayerEffect> CommitEffects()
+        => Trim == 0 ? VirtualEffects() : VirtualEffects().Where((_, i) => !TrimmedAway(i)).ToArray();
+
+    /// <summary>
+    /// 지우기 칸을 놓음: 뒤 프레임 <paramref name="count"/>개를 더 지우기로 한다(이번에 지운 것만 되돌릴 수 있음).
+    /// 0 이하 = 마지막으로 지운 것을 되돌림. 프로젝트는 확인할 때 바뀐다.
+    /// </summary>
+    private void SetTrim(int count)
+    {
+        if (count <= 0)
+        {
+            int back = _restorable;
+            _restorable = 0;
+            ApplyTrim(Trim - back);
+            SyncStripFrames(); // 되돌릴 것 없음 표시
+            return;
+        }
+        int before = Trim;
+        ApplyTrim(Trim + count);
+        _restorable = Trim - before;
+        SyncStripFrames();
+    }
+
+    /// <summary>지우기로 한 뒤 프레임 수를 <paramref name="next"/>로(첫 프레임은 남게) 하고 목록·미리보기·프레임 줄을 맞춘다.</summary>
+    private void ApplyTrim(int next)
+    {
+        next = Math.Clamp(next, 0, ExtendedCount - 1);
+        if (next == Trim) return;
+        _trim = next;
+        _previewFrame = Math.Clamp(_previewFrame, 0, VirtualCount - 1);
+        ClampVirtualRanges(VirtualCount);
+        RefreshRows();
+        SyncExtendEditor();
+        UpdateButtons();
+        RestartRenders();
+        SyncPlayback();
+        SyncStripRange();
+    }
 
     private PixelImage? VirtualSourceAt(int frame) => SourceAt(OriginalOf(frame));
 
@@ -103,8 +171,8 @@ public sealed partial class LayerEffectsDialog
     {
         _extendPanel.Children.Clear();
         _extendPanel.Children.Add(new TextBlock { Text = UiStrings.EffectShared_FrameExtend, FontWeight = Avalonia.Media.FontWeight.Bold });
-        if (Selected >= 0 && Selected < _effects.Count) AddExtendEditor(Selected);
-        else _extendPanel.Children.Add(Ui.Label(UiStrings.S_LayerEffectsDialog_FillSettings_12D0C7E74E));
+        if (Selected < 0 || Selected >= _effects.Count) _extendPanel.Children.Add(Ui.Label(UiStrings.S_LayerEffectsDialog_FillSettings_12D0C7E74E));
+        else if (_effects[Selected] is not MissingEffect) AddExtendEditor(Selected); // 모르는 효과는 고칠 수 없다
     }
 
     private void AddExtendEditor(int i)
@@ -280,6 +348,8 @@ public sealed partial class LayerEffectsDialog
         int original = OriginalOf(_previewFrame);
         var previous = _extension;
         _extension = next;
+        // 지운 상태에서 늘리기를 바꾸면 지운 프레임은 버린다(되돌리기 없음) — 늘린 프레임은 남은 프레임 뒤에 새로 더해진다
+        if (Trim > 0) _restorable = 0;
         _extensionOwner = next is null ? null : owner;
         if (next is null && previous is { } oldExtension)
             CollapseVirtualRanges(oldExtension);
@@ -287,9 +357,7 @@ public sealed partial class LayerEffectsDialog
             ClampVirtualRanges(VirtualCount);
         _previewFrame = Math.Clamp(VirtualOf(original), 0, VirtualCount - 1);
         SyncExtendEditor();
-        InvalidateStrip();
-        SyncCanvasExpansion();
-        RefreshPreview();
+        RestartRenders();
         SyncPlayback();
     }
 
@@ -463,29 +531,40 @@ public sealed partial class LayerEffectsDialog
             ResultMessage = string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Extend_EndPreview_3FACEB3EDB,ex.Message);
             return;
         }
-        if (_extension is null && expansion is null)
+        int trim = Trim, keep = VirtualCount;
+        if (_extension is null && expansion is null && trim == 0)
         {
             _project.EndLayerEffectsPreview(index, _original, commit: true);
             return;
         }
         int oldWidth = _project.Width, oldHeight = _project.Height;
         _project.EndLayerEffectsPreview(index, _original, commit: false);
+        var commitList = CommitEffects();
         var change = ProjectChange.Layers
-                     | (_extension is null ? 0 : ProjectChange.Frames | ProjectChange.Tags | ProjectChange.Pixels)
+                     | (_extension is null && trim == 0 ? 0 : ProjectChange.Frames | ProjectChange.Tags | ProjectChange.Pixels)
                      | (expansion is null ? 0 : ProjectChange.Canvas | ProjectChange.Frames | ProjectChange.Settings | ProjectChange.Pixels);
         string label = _extension is not null && expansion is not null ? UiStrings.S_LayerEffectsDialog_Extend_EndPreview_FE2B132140
-            : _extension is not null ? UiStrings.S_LayerEffectsDialog_Extend_EndPreview_E092F138F7 : UiStrings.S_LayerEffectsDialog_Extend_EndPreview_7BCD2BFB57;
+            : _extension is not null ? UiStrings.S_LayerEffectsDialog_Extend_EndPreview_E092F138F7
+            : trim > 0 ? UiStrings.EffectStrip_TrimLabel : UiStrings.S_LayerEffectsDialog_Extend_EndPreview_7BCD2BFB57;
         _project.Edit(label, change, () =>
         {
             if (_extension is { } ext) _project.ExtendFrames(ext);
-            _project.SetLayerEffects(index, list);
+            _project.SetLayerEffects(index, commitList);
+            if (trim > 0) _project.DeleteFrames(keep, trim);
             if (expansion is { } grow) ApplyCanvasExpansion(grow);
         });
-        ResultMessage = (_extension is { } x ? ExtendSummary(x) : "")
-                        + (_extension is not null && expansion is not null ? " · " : "")
-                        + (expansion is { } grow ? CanvasExpansionSummary(oldWidth, oldHeight, grow) : "")
+        ResultMessage = string.Join(" · ", new[]
+                        {
+                            _extension is { } x ? ExtendSummary(x) : null,
+                            trim > 0 ? TrimSummary(trim) : null,
+                            expansion is { } grow ? CanvasExpansionSummary(oldWidth, oldHeight, grow) : null,
+                        }.OfType<string>())
                         + UiStrings.S_LayerEffectsDialog_Extend_EndPreview_1FF7594D8B;
     }
+
+    /// <summary>"뒤 프레임 3개 지움".</summary>
+    internal static string TrimSummary(int count)
+        => string.Format(global::System.Globalization.CultureInfo.CurrentCulture, UiStrings.EffectStrip_TrimSummary, count);
 
     /// <summary>"프레임 1~4: 4개 → 12개로 늘림 (같은 비율로)".</summary>
     internal static string ExtendSummary(FrameExtension x)

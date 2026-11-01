@@ -21,6 +21,7 @@
   <data name="Effect_ColorCycle" xml:space="preserve"><value>Color cycle</value></data>
   <data name="Effect_HitFlash" xml:space="preserve"><value>Hit flash</value></data>
   <data name="Effect_Hologram" xml:space="preserve"><value>Hologram</value></data>
+  <data name="Effect_Missing" xml:space="preserve"><value>Unknown effect</value></data>
   <data name="Effect_InnerGlow" xml:space="preserve"><value>Inner glow</value></data>
   <data name="Effect_Melt" xml:space="preserve"><value>Melt</value></data>
   <data name="Effect_PaletteSwap" xml:space="preserve"><value>Palette swap</value></data>
@@ -96,7 +97,7 @@
   <data name="Project_CellReadFailed" xml:space="preserve"><value>Couldn't read a cell, so it was cleared ({name}): {error}</value></data>
   <data name="Project_CellResized" xml:space="preserve"><value>Cell size didn't match, so it was aligned to the top-left: {name}</value></data>
   <data name="Project_CombinedLayers" xml:space="preserve"><value>Combined {count} layers of the old atlas into one image per part (visible layers only).</value></data>
-  <data name="Project_UnknownEffect" xml:space="preserve"><value>Skipped an unknown effect ({type}) on layer "{layer}".</value></data>
+  <data name="Project_UnknownEffect" xml:space="preserve"><value>Unknown effect ({type}) on layer "{layer}" is not drawn; it is kept as is when you save.</value></data>
   <data name="Project_RepairedHierarchy" xml:space="preserve"><value>The layer group structure was invalid and has been repaired.</value></data>
   <data name="Project_MigratedLegacyOutfit" xml:space="preserve"><value>Moved the old "current outfit + outfit presets" frame sheet setting to "selected skins" — the current outfit file (unsuffixed name) is no longer created. If needed, save the current outfit as an outfit and select it.</value></data>
   <data name="Merge_NoFrames" xml:space="preserve"><value>No frames.</value></data>
@@ -201,6 +202,7 @@
   <data name="Project_ExtendFrames" xml:space="preserve"><value>Extend frames</value></data>
   <data name="Project_CannotDeleteLastFrame" xml:space="preserve"><value>The last frame can't be deleted.</value></data>
   <data name="Project_DeleteFrame" xml:space="preserve"><value>Delete frame</value></data>
+  <data name="Project_DeleteFrames" xml:space="preserve"><value>Delete frames</value></data>
   <data name="Project_MoveFrame" xml:space="preserve"><value>Move frame</value></data>
   <data name="Project_FrameDuration" xml:space="preserve"><value>Frame duration</value></data>
   <data name="Project_FramePivot" xml:space="preserve"><value>Frame pivot</value></data>
@@ -220,4 +222,115 @@
   <data name="Project_InvalidPartSize" xml:space="preserve"><value>Part size must be between 1 and {max}: {width}x{height}</value></data>
   <data name="Project_UnsavableEffect" xml:space="preserve"><value>Effect can't be saved: {type}</value></data>
   <data name="Import_NoDocument" xml:space="preserve"><value>No document to import.</value></data>
+  <data name="Script_SyntaxError" xml:space="preserve"><value>Syntax error: {detail}</value></data>
+  <data name="Script_RuntimeError" xml:space="preserve"><value>Runtime error: {detail}</value></data>
+  <data name="Script_Timeout" xml:space="preserve"><value>Stopped: ran longer than {seconds} s.</value></data>
+  <data name="Script_StatementLimit" xml:space="preserve"><value>Stopped: ran more than {count} statements.</value></data>
+  <data name="Script_MemoryLimit" xml:space="preserve"><value>Stopped: used too much memory (up to {megabytes} MB per call and {length} array elements).</value></data>
+  <data name="Script_RecursionLimit" xml:space="preserve"><value>Stopped: function calls nested deeper than {depth} levels.</value></data>
+  <data name="Script_NoEffect" xml:space="preserve"><value>No effect(...) declaration found.</value></data>
+  <data name="Script_DuplicateEffect" xml:space="preserve"><value>effect(...) can be called only once.</value></data>
+  <data name="Script_DeclarationNotObject" xml:space="preserve"><value>effect() needs an object describing the effect.</value></data>
+  <data name="Script_InvalidName" xml:space="preserve"><value>name must be a non-empty string.</value></data>
+  <data name="Script_InvalidAnimated" xml:space="preserve"><value>animated must be true or false.</value></data>
+  <data name="Script_InvalidArea" xml:space="preserve"><value>area must be "global" or "local".</value></data>
+  <data name="Script_InvalidRadius" xml:space="preserve"><value>When area is "local", radius must be a whole number from 0 to {max}.</value></data>
+  <data name="Script_MissingRender" xml:space="preserve"><value>A render(img, ctx, s) function is required.</value></data>
+  <data name="Script_InvalidPadding" xml:space="preserve"><value>padding must be a [left, top, right, bottom] array of whole numbers from 0 to {max}, or a function returning one.</value></data>
+  <data name="Script_InvalidSettings" xml:space="preserve"><value>settings must be an array.</value></data>
+  <data name="Script_InvalidSetting" xml:space="preserve"><value>settings[{index}] must be an object.</value></data>
+  <data name="Script_InvalidSettingKey" xml:space="preserve"><value>settings[{index}].key must start with a letter or _ and use only letters, digits and _.</value></data>
+  <data name="Script_DuplicateSettingKey" xml:space="preserve"><value>Duplicate setting key: {key}</value></data>
+  <data name="Script_InvalidSettingLabel" xml:space="preserve"><value>label of setting {key} must be a string.</value></data>
+  <data name="Script_InvalidSettingType" xml:space="preserve"><value>type of setting {key} must be int, number, bool, color or choice.</value></data>
+  <data name="Script_InvalidSettingRange" xml:space="preserve"><value>min, max or step of setting {key} is invalid (numbers, min ≤ max, step &gt; 0, whole numbers for int).</value></data>
+  <data name="Script_InvalidSettingDefault" xml:space="preserve"><value>default of setting {key} doesn't match its type or range.</value></data>
+  <data name="Script_InvalidSettingChoices" xml:space="preserve"><value>choices of setting {key} must list unique strings or objects with value and label.</value></data>
+  <data name="Script_InvalidImageData" xml:space="preserve"><value>img.data must be an array of {length} numbers (element {index} is invalid).</value></data>
+  <data name="Script_ImageTooLarge" xml:space="preserve"><value>Image is too large for a script effect: {width}x{height}</value></data>
+  <data name="Script_InvalidBlankSize" xml:space="preserve"><value>img.blank width and height must be whole numbers from 1 to {max}, with at most {pixels} pixels.</value></data>
+  <data name="Script_InvalidImageArgument" xml:space="preserve"><value>Expected an image made by img.blank or ctx.frameSource.</value></data>
+  <data name="Script_UnknownColorSetting" xml:space="preserve"><value>Not a color setting: {key}</value></data>
+  <data name="Asset_Issue_PackageTooLarge" xml:space="preserve"><value>The package file is too large (max {detail} bytes).</value></data>
+  <data name="Asset_Issue_NotZip" xml:space="preserve"><value>Can't read this as a ZIP package.</value></data>
+  <data name="Asset_Issue_TooManyFiles" xml:space="preserve"><value>The package has too many files (max {detail}).</value></data>
+  <data name="Asset_Issue_FileTooLarge" xml:space="preserve"><value>The file is too large (max {detail} bytes).</value></data>
+  <data name="Asset_Issue_ExpandedTooLarge" xml:space="preserve"><value>The total uncompressed size is too large (max {detail} bytes).</value></data>
+  <data name="Asset_Issue_InvalidPath" xml:space="preserve"><value>This path isn't allowed.</value></data>
+  <data name="Asset_Issue_AbsolutePath" xml:space="preserve"><value>Absolute paths aren't allowed.</value></data>
+  <data name="Asset_Issue_PathEscape" xml:space="preserve"><value>Paths that point elsewhere with '..' or '.' aren't allowed.</value></data>
+  <data name="Asset_Issue_DuplicatePath" xml:space="preserve"><value>The same path appears twice.</value></data>
+  <data name="Asset_Issue_CaseConflict" xml:space="preserve"><value>Another path differs only in letter case.</value></data>
+  <data name="Asset_Issue_SpecialFile" xml:space="preserve"><value>Special files such as symlinks aren't allowed.</value></data>
+  <data name="Asset_Issue_DisallowedFile" xml:space="preserve"><value>This file isn't allowed here. {detail}</value></data>
+  <data name="Asset_Issue_UnlistedFile" xml:space="preserve"><value>The file isn't listed in the manifest.</value></data>
+  <data name="Asset_Issue_MissingFile" xml:space="preserve"><value>The manifest lists a file that isn't in the package. {detail}</value></data>
+  <data name="Asset_Issue_HashMismatch" xml:space="preserve"><value>The file's SHA-256 doesn't match the manifest.</value></data>
+  <data name="Asset_Issue_MissingManifest" xml:space="preserve"><value>manifest.json is missing.</value></data>
+  <data name="Asset_Issue_InvalidJson" xml:space="preserve"><value>Can't read the JSON, or it has the wrong shape.</value></data>
+  <data name="Asset_Issue_JsonTooDeep" xml:space="preserve"><value>The JSON is nested too deeply (max {detail} levels).</value></data>
+  <data name="Asset_Issue_StringTooLong" xml:space="preserve"><value>A JSON string is too long (max {detail} characters).</value></data>
+  <data name="Asset_Issue_FutureSchema" xml:space="preserve"><value>This uses a newer format (schema {detail}) than this app. Update Gpixel.</value></data>
+  <data name="Asset_Issue_InvalidField" xml:space="preserve"><value>Missing or invalid value: {detail}</value></data>
+  <data name="Asset_Issue_AppTooOld" xml:space="preserve"><value>Requires Gpixel {detail} or later.</value></data>
+  <data name="Asset_Issue_UnknownKind" xml:space="preserve"><value>Unknown asset kind: {detail}</value></data>
+  <data name="Asset_Issue_DuplicateAssetId" xml:space="preserve"><value>Duplicate asset ID: {detail}</value></data>
+  <data name="Asset_Issue_UnknownEffect" xml:space="preserve"><value>This app doesn't have the effect: {detail}</value></data>
+  <data name="Asset_Issue_InvalidEffectSetting" xml:space="preserve"><value>Effect setting doesn't match its schema: {detail}</value></data>
+  <data name="Asset_Issue_TooManyItems" xml:space="preserve"><value>Too many items: {detail}</value></data>
+  <data name="Asset_Issue_InvalidPreview" xml:space="preserve"><value>Can't read the preview PNG.</value></data>
+  <data name="Asset_Issue_PreviewTooLarge" xml:space="preserve"><value>The preview image is too large (max {detail}).</value></data>
+  <data name="Asset_Issue_VersionConflict" xml:space="preserve"><value>The same version is already installed with different content: {detail}</value></data>
+  <data name="Effect_Script" xml:space="preserve"><value>Script effect</value></data>
+  <data name="Script_InvalidAuthor" xml:space="preserve"><value>author must be a string.</value></data>
+  <data name="Script_ReservedSettingKey" xml:space="preserve"><value>{key} cannot be a setting key ({keys} are used by the effect motion settings).</value></data>
+  <data name="Project_BadScript" xml:space="preserve"><value>A script in the script table does not match its hash and was not loaded: {hash}</value></data>
+  <data name="Project_MissingScript" xml:space="preserve"><value>The script source for a script effect on layer "{layer}" is missing from the file, so it is not drawn ({hash}). The effect is kept when you save.</value></data>
+  <data name="Remote_Issue_Network" xml:space="preserve"><value>Couldn't connect to the online asset list: {detail}</value></data>
+  <data name="Remote_Issue_Timeout" xml:space="preserve"><value>The server took too long to respond.</value></data>
+  <data name="Remote_Issue_HttpStatus" xml:space="preserve"><value>The server returned an error (HTTP {detail}).</value></data>
+  <data name="Remote_Issue_InvalidIndex" xml:space="preserve"><value>Can't read the online asset list (bad value: {detail}).</value></data>
+  <data name="Remote_Issue_FutureSchema" xml:space="preserve"><value>The online asset list uses a newer format than this Gpixel (schema {detail}). Update Gpixel.</value></data>
+  <data name="Remote_Issue_NotHttps" xml:space="preserve"><value>Not downloaded because the address isn't HTTPS or is on a different site than the list: {detail}</value></data>
+  <data name="Remote_Issue_TooLarge" xml:space="preserve"><value>The downloaded file is over the size limit ({detail} bytes).</value></data>
+  <data name="Remote_Issue_SizeMismatch" xml:space="preserve"><value>The downloaded file's size doesn't match the list: {detail}</value></data>
+  <data name="Remote_Issue_HashMismatch" xml:space="preserve"><value>The downloaded package's SHA-256 doesn't match the list, so it wasn't installed: {detail}</value></data>
+  <data name="Remote_Incompatible_AppTooOld" xml:space="preserve"><value>Requires Gpixel {0} or later (this is {1}).</value></data>
+  <data name="Remote_Incompatible_UnknownKind" xml:space="preserve"><value>Contains asset kinds this version of Gpixel can't use: {0}</value></data>
+  <data name="CatalogBuild_UnexpectedFile" xml:space="preserve"><value>This file or folder isn't allowed in the catalog source.</value></data>
+  <data name="CatalogBuild_PackageCount" xml:space="preserve"><value>A submission folder must hold exactly one .gpixel-asset file (found {detail}).</value></data>
+  <data name="CatalogBuild_InvalidPackage" xml:space="preserve"><value>Package check failed — {detail}</value></data>
+  <data name="CatalogBuild_FolderMismatch" xml:space="preserve"><value>The folder name doesn't match the package ID ({detail}).</value></data>
+  <data name="CatalogBuild_AuthorMismatch" xml:space="preserve"><value>The first part of the package ID doesn't match the author ID ({detail}).</value></data>
+  <data name="CatalogBuild_MissingAuthor" xml:space="preserve"><value>No public author information (personal export packages can't be submitted).</value></data>
+  <data name="CatalogBuild_MissingLicense" xml:space="preserve"><value>No public license (license {detail}; LICENSE.txt or LICENSE.md required).</value></data>
+  <data name="CatalogBuild_InvalidReview" xml:space="preserve"><value>review.json is missing or has a bad value: {detail}</value></data>
+  <data name="CatalogBuild_OfficialMismatch" xml:space="preserve"><value>The author ID gpixel is reserved for official packages (review status official), and only gpixel makes official packages (got {detail}). Use another author ID.</value></data>
+  <data name="CatalogBuild_Duplicate" xml:space="preserve"><value>The name or package file duplicates another submission ({detail}).</value></data>
+  <data name="CatalogBuild_PublishedChanged" xml:space="preserve"><value>The already published version {detail} changed. Bump the version.</value></data>
+  <data name="CatalogBuild_VersionDowngrade" xml:space="preserve"><value>Lower than the published version ({detail}).</value></data>
+  <data name="Asset_Issue_RecipeBindingMissingEffect" xml:space="preserve"><value>Recipe parameter points to an effect that isn't in the recipe: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingUnknownKey" xml:space="preserve"><value>Recipe parameter points to a setting the effect doesn't have: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingKindMismatch" xml:space="preserve"><value>Recipe parameter and its linked setting have different value kinds: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingDuplicate" xml:space="preserve"><value>The same effect setting is linked to parameters twice: {detail}</value></data>
+  <data name="Asset_Issue_RecipeParameterOutOfRange" xml:space="preserve"><value>Recipe parameter value is outside what the linked setting allows: {detail}</value></data>
+  <data name="Asset_Issue_InvalidScript" xml:space="preserve"><value>Can't read the script: {detail}</value></data>
+  <data name="Asset_Issue_ScriptHashMismatch" xml:space="preserve"><value>Script source doesn't match its hash: {detail}</value></data>
+  <data name="Asset_Issue_MissingScript" xml:space="preserve"><value>The recipe doesn't include the source of a script effect: {detail}</value></data>
+  <data name="CatalogBuild_MissingPreview" xml:space="preserve"><value>No list preview (an asset with a preview or a preview in review.json is required).</value></data>
+  <data name="Publish_NoAssets" xml:space="preserve"><value>Choose at least one asset to include.</value></data>
+  <data name="Publish_AuthorId" xml:space="preserve"><value>The author ID must be 1–64 lowercase letters, digits and inner hyphens (e.g. pixel-cat).</value></data>
+  <data name="Publish_AuthorName" xml:space="preserve"><value>Enter an author display name of 1–100 characters.</value></data>
+  <data name="Publish_AuthorUrl" xml:space="preserve"><value>The author web address must start with https:// (it can be left empty).</value></data>
+  <data name="Publish_PackageId" xml:space="preserve"><value>The package ID must look like "author-id.name" (two or more dot-separated parts of lowercase letters, digits and hyphens, up to 100 characters).</value></data>
+  <data name="Publish_Version" xml:space="preserve"><value>The version must be SemVer "major.minor.patch" (e.g. 1.2.0).</value></data>
+  <data name="Publish_Name" xml:space="preserve"><value>Enter a package name of 1–100 characters.</value></data>
+  <data name="Publish_License" xml:space="preserve"><value>Choose a license (an SPDX ID or an ID starting with LicenseRef-).</value></data>
+  <data name="Publish_Summary" xml:space="preserve"><value>Enter a short description of 1–200 characters (no line breaks).</value></data>
+  <data name="Publish_Tags" xml:space="preserve"><value>Up to 8 tags, each up to 32 lowercase letters, digits and hyphens.</value></data>
+  <data name="Publish_NoTags" xml:space="preserve"><value>Without tags the package is hard to find in Browse.</value></data>
+  <data name="Publish_UnknownLicense" xml:space="preserve"><value>{detail} is not a common SPDX ID. Check the spelling; a license you wrote yourself should start with LicenseRef-.</value></data>
+  <data name="Publish_SavedVersionChanged" xml:space="preserve"><value>You saved version {detail} with different contents on this computer before. If you already submitted it, raise the version.</value></data>
+  <data name="AssetMigration_UnnamedRecipe" xml:space="preserve"><value>Unnamed effect {number}</value></data>
+  <data name="AssetMigration_UnnamedGradient" xml:space="preserve"><value>Unnamed gradient {number}</value></data>
 </root>

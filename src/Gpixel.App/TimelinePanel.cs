@@ -1,4 +1,5 @@
 using Gpixel.Core.Model;
+using Gpixel.Core.Scripting;
 using Gpixel.App.Localization;
 
 namespace Gpixel.App;
@@ -74,6 +75,7 @@ public sealed class TimelinePanel : UserControl
             _grid.EnsureCurrentVisible();
         };
         ctx.ViewChanged += (_, _) => _grid.InvalidateVisual();
+        ctx.RenderUpdated += (_, _) => _grid.InvalidateVisual();
         preview.PlayingFrameChanged += (_, f) => _grid.PlayingFrame = f;
         _grid.SyncLayout(animate: false);
         RefreshUi();
@@ -1299,7 +1301,12 @@ public sealed class TimelinePanel : UserControl
                 _ctx.Structural(() => p.Edit(UiStrings.S_TimelinePanel_BakeItem_F52DF1DF1B, ProjectChange.Layers | ProjectChange.Pixels, () =>
                 {
                     foreach (var (target, indices) in targets)
-                        messages.Add(LayerEffectsDialog.BakeSummary(p.BakeLayerEffects(p.IndexOf(target), indices), target));
+                    {
+                        // 셀마다 효과를 입히는 계산은 덮개를 띄우고 작업 스레드에서(넣기만 여기서)
+                        int index = p.IndexOf(target);
+                        var bake = WorkOverlay.Run(this, UiStrings.Busy_Baking, _ => p.PrepareBake(index, indices));
+                        messages.Add(LayerEffectsDialog.BakeSummary(p.ApplyBake(bake), target));
+                    }
                 }));
             }
             catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
@@ -1369,7 +1376,13 @@ public sealed class TimelinePanel : UserControl
     private void ChangeEffect(Layer layer, int effectIndex, Func<LayerEffect, LayerEffect> change)
         => ChangeEffects(layer, list => { if (effectIndex < list.Count) list[effectIndex] = change(list[effectIndex]); });
 
-    private void SetEffectEnabled(Layer layer, int effectIndex, bool enabled) => ChangeEffect(layer, effectIndex, e => e with { Enabled = enabled });
+    private void SetEffectEnabled(Layer layer, int effectIndex, bool enabled)
+    {
+        // 다시 켜면 연속 실패로 멈춘 스크립트 효과도 다시 계산한다
+        if (enabled && effectIndex >= 0 && effectIndex < layer.Effects.Count && layer.Effects[effectIndex] is ScriptEffect script)
+            ScriptEffectRuntime.Resume(layer, script);
+        ChangeEffect(layer, effectIndex, e => e with { Enabled = enabled });
+    }
 
     /// <summary>레이어 아래 효과 줄 접기/펼치기(기록·수정 표시 없음).</summary>
     private void ToggleEffectRows(int index)
@@ -1493,6 +1506,8 @@ public sealed class TimelinePanel : UserControl
         private FxGrip _fxGrip;
         private IReadOnlyList<LayerEffect>? _fxOriginal;
         private int _fxGrab, _fxFrom, _fxTo;
+        /// <summary>효과 범위 끌기 중 상자가 보이는 새 범위의 효과(null = 아직 안 옮김). 놓을 때만 레이어에 넣는다 — 끄는 동안 칸마다 모든 프레임을 다시 계산하지 않게.</summary>
+        private LayerEffect? _fxDragged;
         /// <summary>마우스가 올라간 효과 상자(손잡이 강조용).</summary>
         private (Layer Layer, int Index)? _fxHover;
         /// <summary>마우스가 올라간 자동 배치 표시 ◆의 그룹(도움말 풍선·강조용).</summary>
@@ -2310,35 +2325,6 @@ public sealed class TimelinePanel : UserControl
             g.DrawGeometry(AppTheme.AccentBrush, null, geo);
         }
 
-        /// <summary>효과 종류마다의 상자 색.</summary>
-        private static Color FxColor(LayerEffect effect) => effect switch
-        {
-            OutlineEffect => Color.FromRgb(232, 160, 72),
-            ShadowEffect => Color.FromRgb(118, 124, 196),
-            RimLightEffect => Color.FromRgb(226, 210, 110),
-            ColorOverlayEffect => Color.FromRgb(196, 96, 170),
-            InnerGlowEffect => Color.FromRgb(250, 236, 170),
-            PaletteSwapEffect => Color.FromRgb(150, 110, 230),
-            ColorAdjustEffect => Color.FromRgb(160, 160, 160),
-            ReflectionEffect => Color.FromRgb(70, 150, 200),
-            ExplodeEffect => Color.FromRgb(236, 72, 40),
-            ShineEffect => Color.FromRgb(120, 214, 236),
-            SquashEffect => Color.FromRgb(110, 200, 120),
-            HitFlashEffect => Color.FromRgb(250, 250, 250),
-            BlinkEffect => Color.FromRgb(200, 170, 255),
-            ShakeEffect => Color.FromRgb(186, 84, 60),
-            BobEffect => Color.FromRgb(160, 236, 214),
-            AppearEffect => Color.FromRgb(206, 232, 86),
-            FadeEffect => Color.FromRgb(120, 194, 220),
-            MeltEffect => Color.FromRgb(160, 112, 72),
-            RotateEffect => Color.FromRgb(70, 96, 232),
-            AfterimageEffect => Color.FromRgb(40, 190, 160),
-            ColorCycleEffect => Color.FromRgb(230, 60, 120),
-            ShockwaveEffect => Color.FromRgb(255, 214, 40),
-            HologramEffect => Color.FromRgb(0, 180, 255),
-            _ => AppTheme.AccentColor,
-        };
-
         /// <summary>효과 줄 이름 칸의 켜기 체크 상자 왼쪽 x(레이어 이름보다 조금 들여 씀). 상자 폭 10px, 누르는 자리는 앞뒤로 조금 넓게.</summary>
         private static int FxCheckX(Layer layer) => NameLeft(layer) + 10;
 
@@ -2537,15 +2523,19 @@ public sealed class TimelinePanel : UserControl
                 }
                 g.FillRectangle(f == cur ? AppTheme.HoverBrush : AppTheme.PanelBrush, r);
                 if (CellTint(l, f) is { } tint) g.FillRectangle(tint, r);
-                if (Ctx.CelBitmap(l, f) is { } bmp)
+                var thumb = Ctx.CelThumbnail(l, f);
+                if (thumb.Bitmap is { } bmp)
                 {
-                    var src = new Rectangle(0, 0, bmp.PixelSize.Width, bmp.PixelSize.Height);
+                    var size = new Size(thumb.SourceWidth, thumb.SourceHeight);
                     // 지금 스킨에 자기 그림이 없어 기본 스킨 셀을 물려받은 칸은 흐리게
+                    Rect shown;
                     if (p.IsCelInherited(l, f))
                     {
-                        using (g.PushOpacity(InheritedOpacity)) ImageUtil.DrawFitted(g, bmp, src, r.Deflate(3), checker: true);
+                        using (g.PushOpacity(InheritedOpacity)) shown = ImageUtil.DrawFittedThumb(g, bmp, size, r.Deflate(3), checker: true);
                     }
-                    else ImageUtil.DrawFitted(g, bmp, src, r.Deflate(3), checker: true);
+                    else shown = ImageUtil.DrawFittedThumb(g, bmp, size, r.Deflate(3), checker: true);
+                    // 작업 스레드에서 다시 계산하는 중이면 이전 그림 위에 회색 덮개
+                    if (thumb.Overlay) RenderOverlay.DrawVeil(g, shown);
                 }
                 else
                     g.DrawEllipse(AppTheme.BorderBrush, null, new Rect(r.X + r.Width / 2 - 3, r.Y + r.Height / 2 - 3, 6, 6));
@@ -2565,12 +2555,12 @@ public sealed class TimelinePanel : UserControl
                     g.FillRectangle(FrameOf(p, col) == cur ? FxCurBrush : FxCellBrush, new Rect(x + 1, ry, Math.Max(0, col.Px - 2), FxH - 1));
                 }
                 if (k >= layer.Effects.Count || frames == 0) return;
-                var effect = layer.Effects[k];
+                bool editing = ReferenceEquals(_fxLayer, layer) && _fxIndex == k;
+                var effect = editing && _fxDragged is { } dragged ? dragged : layer.Effects[k];
                 var (x0, x1) = FxX(effect, frames);
                 if (x1 - x0 < 1) return;
                 var box = new Rect(x0, ry + 1, x1 - x0, FxH - 3);
-                var color = FxColor(effect);
-                bool editing = ReferenceEquals(_fxLayer, layer) && _fxIndex == k;
+                var color = LayerEffectsDialog.TimelineColorOf(effect);
                 bool hovered = editing || (_fxHover is { } h && ReferenceEquals(h.Layer, layer) && h.Index == k);
                 IBrush ink = IsBright(color) ? Brushes.Black : Brushes.White;
                 using (g.PushOpacity(effect.Enabled ? 1 : 0.4))
@@ -2588,7 +2578,16 @@ public sealed class TimelinePanel : UserControl
                         VectorIcons.Draw(g, VectorIcon.CornerDownRight, new Rect(textX, box.Y, 12, box.Height), 10, ink);
                         textX += 13;
                     }
-                    var textArea = new Rect(textX, box.Y, Math.Max(0, box.Right - textX - 7), box.Height);
+                    // 그리지 못하는 스크립트 효과(원문 없음·실행 안 함·오류·실패): 상자 오른쪽 끝에 경고 표시
+                    bool scriptProblem = effect is ScriptEffect script && ScriptEffectRuntime.StatusOf(layer, script).IsProblem;
+                    double textRight = box.Right - 7;
+                    if (scriptProblem && box.Width >= 16)
+                    {
+                        g.FillRectangle(AppTheme.BackBrush, new Rect(box.Right - 14, box.Y + 1, 13, box.Height - 2), 3);
+                        VectorIcons.Draw(g, VectorIcon.CircleAlert, new Rect(box.Right - 13.5, box.Y, 12, box.Height), 10, AppTheme.WarningBrush);
+                        textRight = box.Right - 15;
+                    }
+                    var textArea = new Rect(textX, box.Y, Math.Max(0, textRight - textX), box.Height);
                     if (textArea.Width >= AppTheme.MeasureText(effect.DisplayName, AppTheme.SmallFontSize).Width)
                         Text(g, effect.DisplayName, textArea, ink, small: true);
                 }
@@ -2872,7 +2871,7 @@ public sealed class TimelinePanel : UserControl
                 if (k >= layer.Effects.Count) return;
                 var effect = layer.Effects[k];
                 int x = FxCheckX(layer);
-                g.FillRectangle(AppTheme.Brush(FxColor(effect)), new Rect(x - 7, ry + 3, 3, FxH - 6));
+                g.FillRectangle(AppTheme.Brush(LayerEffectsDialog.TimelineColorOf(effect)), new Rect(x - 7, ry + 3, 3, FxH - 6));
                 var check = new Rect(x + 0.5, ry + 3.5, 9, 9);
                 g.DrawRectangle(effect.Enabled ? AppTheme.AccentBrush : null, BorderPen, check, 2, 2);
                 if (effect.Enabled)
@@ -2888,7 +2887,13 @@ public sealed class TimelinePanel : UserControl
                     labelX += 14;
                 }
                 var label = effect.DisplayName + (effect.Frames is { } fr ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_TimelinePanel_Paint_5AB8DD426F,fr) : "");
-                Text(g, label, new Rect(labelX, ry, Math.Max(1, NameW - labelX - 4), FxH), effect.Enabled ? AppTheme.TextBrush : AppTheme.DimTextBrush, small: true);
+                double labelRight = NameW - 4;
+                if (effect is ScriptEffect script && ScriptEffectRuntime.StatusOf(layer, script).IsProblem)
+                {
+                    VectorIcons.Draw(g, VectorIcon.CircleAlert, new Rect(NameW - 17, ry, 12, FxH), 10, AppTheme.WarningBrush);
+                    labelRight = NameW - 19;
+                }
+                Text(g, label, new Rect(labelX, ry, Math.Max(1, labelRight - labelX), FxH), effect.Enabled ? AppTheme.TextBrush : AppTheme.DimTextBrush, small: true);
                 if (selected) g.DrawRectangle(null, AccentPen, new Rect(1, ry + 1, NameW - 3, FxH - 2));
             }
 
@@ -3488,12 +3493,12 @@ public sealed class TimelinePanel : UserControl
             return moving;
         }
 
-        /// <summary>효과 범위 끌기 중: 프레임 칸에 맞춰 새 범위를 미리보기로 넣는다(기록 없음, 모든 프레임을 덮으면 "모든 프레임").</summary>
+        /// <summary>효과 범위 끌기 중: 프레임 칸에 맞춰 새 범위를 상자에만 보인다(모든 프레임을 덮으면 "모든 프레임"). 레이어 효과는 놓을 때 바꾼다.</summary>
         private void DragFx(Avalonia.Point pos)
         {
             if (Ctx.Project is not { } p || _fxLayer is not { } layer || _fxOriginal is not { } original) return;
-            int index = p.IndexOf(layer), n = p.Frames.Count;
-            if (index < 0 || _fxIndex >= original.Count || _fxIndex >= layer.Effects.Count) return;
+            int n = p.Frames.Count;
+            if (_fxIndex >= original.Count) return;
             int f = FrameAtClamped(pos.X), from = _fxFrom, to = _fxTo;
             switch (_fxGrip)
             {
@@ -3507,24 +3512,27 @@ public sealed class TimelinePanel : UserControl
             }
             Cursor = _fxGrip == FxGrip.Body ? MoveCursor : ResizeCursor;
             var effect = original[_fxIndex] with { Frames = FrameRange.Of(from, to, n) };
-            if (layer.Effects[_fxIndex] == effect) return;
-            var list = original.ToArray();
-            list[_fxIndex] = effect;
-            p.PreviewLayerEffects(index, list);
+            if ((_fxDragged ?? original[_fxIndex]) == effect) return;
+            _fxDragged = effect;
+            InvalidateVisual();
         }
 
-        /// <summary>효과 범위 끌기 끝: <paramref name="commit"/>이면 미리보던 범위를 실행취소 한 단계로 확정, 아니면 끌기 전으로 되돌린다.</summary>
+        /// <summary>효과 범위 끌기 끝: <paramref name="commit"/>이고 범위가 바뀌었으면 실행취소 한 단계로 넣는다(여기서 한 번만 다시 계산), 아니면 그대로.</summary>
         private void FinishFx(bool commit)
         {
-            var (layer, original) = (_fxLayer, _fxOriginal);
+            var (layer, original, dragged) = (_fxLayer, _fxOriginal, _fxDragged);
             _fxLayer = null;
             _fxOriginal = null;
+            _fxDragged = null;
             Cursor = Cursor.Default;
             InvalidateVisual();
-            if (layer is null || original is null || Ctx.Project is not { } p) return;
+            if (!commit || layer is null || original is null || dragged is null || Ctx.Project is not { } p) return;
             int index = p.IndexOf(layer);
-            if (index < 0 || ReferenceEquals(layer.Effects, original)) return;
-            Ctx.Structural(() => p.EndLayerEffectsPreview(index, original, commit));
+            // 끄는 동안 다른 곳(AI 도구 등)이 효과를 바꿨으면 넣지 않는다
+            if (index < 0 || !ReferenceEquals(layer.Effects, original) || dragged == original[_fxIndex]) return;
+            var list = original.ToArray();
+            list[_fxIndex] = dragged;
+            Ctx.Structural(() => p.SetLayerEffects(index, list));
         }
 
         /// <summary>점 위 효과 상자와 잡는 곳(프레임 칸 쪽 효과 줄만, 상자 밖이면 null).</summary>

@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi ShockwaveUi => EffectUi.For<ShockwaveEffect>(ShockwaveDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_71D60FCC7E, UiStrings.S_LayerEffectsDialog_KindTable_CB2F9D0913,
+        Avalonia.Media.Color.FromRgb(255, 214, 40), (dialog, e, set) => dialog.ShockwavePanel(e, set),
+        wave => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_D07B4E5446,wave.Radius,wave.Thickness,(wave.Behind ? UiStrings.S_LayerEffectsDialog_Summary_E3B52B00EB : UiStrings.S_LayerEffectsDialog_Summary_BC26FFFDAA)));
+
     /// <summary>충격파 고리 설정: 중심(+ 직접 X·Y), 최대 반지름, 두께, 색, 사라짐, 앞/뒤.</summary>
     private void ShockwavePanel(ShockwaveEffect e, Action<Func<LayerEffect, LayerEffect>> set)
     {

@@ -9,19 +9,17 @@ namespace Gpixel.Core.IO;
 /// </summary>
 public static class ImageWriter
 {
-    public static void Save(PixelImage image, string path, ExportImageFormat format, int jpegQuality = 90)
+    public static void Save(PixelImage image, string path, ExportImageFormat format, int jpegQuality = 90) => Save(image, path, format, jpegQuality, null);
+
+    /// <param name="stage">진행(PNG만 줄마다, 단위: 픽셀).</param>
+    internal static void Save(PixelImage image, string path, ExportImageFormat format, int jpegQuality, WorkStage? stage)
     {
-        if (format == ExportImageFormat.Png)
-        {
-            PngIO.Save(image, path);
-            return;
-        }
         var full = Path.GetFullPath(path);
         var temp = full + ".gpixel-tmp";
         try
         {
             using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                Save(image, fs, format, jpegQuality);
+                Save(image, fs, format, jpegQuality, stage);
             File.Move(temp, full, overwrite: true);
         }
         finally
@@ -30,14 +28,16 @@ public static class ImageWriter
         }
     }
 
-    public static void Save(PixelImage image, Stream stream, ExportImageFormat format, int jpegQuality = 90)
+    public static void Save(PixelImage image, Stream stream, ExportImageFormat format, int jpegQuality = 90) => Save(image, stream, format, jpegQuality, null);
+
+    private static void Save(PixelImage image, Stream stream, ExportImageFormat format, int jpegQuality, WorkStage? stage)
     {
         switch (format)
         {
             case ExportImageFormat.Jpg: JpegEncoder.Write(image, stream, jpegQuality); break;
             case ExportImageFormat.Tga: WriteTga(image, stream); break;
             case ExportImageFormat.Bmp: WriteBmp(image, stream); break;
-            default: PngIO.Save(image, stream); break;
+            default: PngIO.Save(image, stream, stage); break;
         }
     }
 

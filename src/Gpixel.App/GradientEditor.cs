@@ -176,8 +176,7 @@ public sealed class GradientEditor : StackPanel
     private IEnumerable<object> BuildPresetMenu()
     {
         var items = new List<object>();
-        var owner = Ui.Owner(this);
-        var presets = owner is null ? null : GradientPresetUi.Load(owner);
+        var presets = GradientPresetUi.Available.Select(entry => entry.Gradient!).ToList();
 
         static MenuItem Item(string text, Action action)
         {
@@ -209,26 +208,23 @@ public sealed class GradientEditor : StackPanel
         }
 
         items.Add(Item(UiStrings.GradientPreset_SaveCurrent, SaveCurrentPreset));
-        if (presets is not null)
+        var favorites = presets.Where(preset => preset.Favorite).ToList();
+        if (favorites.Count > 0)
         {
-            var favorites = presets.Where(preset => preset.Favorite).ToList();
-            if (favorites.Count > 0)
-            {
-                items.Add(new Separator());
-                items.Add(new MenuItem { Header = UiStrings.GradientPreset_Favorites, IsEnabled = false });
-                foreach (var preset in favorites) items.Add(PresetItem(preset));
-            }
-            var others = presets.Where(preset => !preset.Favorite).ToList();
-            if (others.Count > 0)
-            {
-                items.Add(new Separator());
-                foreach (var preset in others) items.Add(PresetItem(preset));
-            }
-            if (presets.Count == 0)
-            {
-                items.Add(new Separator());
-                items.Add(new MenuItem { Header = UiStrings.GradientPreset_Empty, IsEnabled = false });
-            }
+            items.Add(new Separator());
+            items.Add(new MenuItem { Header = UiStrings.GradientPreset_Favorites, IsEnabled = false });
+            foreach (var preset in favorites) items.Add(PresetItem(preset));
+        }
+        var others = presets.Where(preset => !preset.Favorite).ToList();
+        if (others.Count > 0)
+        {
+            items.Add(new Separator());
+            foreach (var preset in others) items.Add(PresetItem(preset));
+        }
+        if (presets.Count == 0)
+        {
+            items.Add(new Separator());
+            items.Add(new MenuItem { Header = UiStrings.GradientPreset_Empty, IsEnabled = false });
         }
         items.Add(new Separator());
         items.Add(Item(UiStrings.GradientPreset_ManageMenu, () =>
@@ -238,20 +234,19 @@ public sealed class GradientEditor : StackPanel
         return items;
     }
 
+    /// <summary>지금 그라데이션을 개인 그라데이션으로 저장한다(같은 이름의 개인 그라데이션은 물어보고 덮어씀).</summary>
     private void SaveCurrentPreset()
     {
-        if (Ui.Owner(this) is not { } owner || GradientPresetUi.Load(owner) is not { } presets) return;
+        if (Ui.Owner(this) is not { } owner) return;
+        var personal = GradientPresetUi.Personal;
         string? name = InputDialog.Ask(owner, UiStrings.GradientPreset_SaveCurrent,
-            UiStrings.GradientPreset_NamePrompt, "", presets.Select(preset => preset.Name))?.Trim();
+            UiStrings.GradientPreset_NamePrompt, "", personal.Select(entry => entry.Name))?.Trim();
         if (string.IsNullOrEmpty(name)) return;
-        int index = presets.FindIndex(preset => string.Equals(preset.Name, name, StringComparison.OrdinalIgnoreCase));
-        if (index >= 0 && Ui.Ask(owner, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
+        var existing = personal.FirstOrDefault(entry => string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null && Ui.Ask(owner, string.Format(global::System.Globalization.CultureInfo.CurrentCulture,
                 UiStrings.GradientPreset_OverwriteQuestion, name), UiStrings.GradientPreset_SaveCurrent,
                 MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
-        var current = ToPreset(name, index >= 0 && presets[index].Favorite);
-        if (index >= 0) presets[index] = current;
-        else presets.Add(current);
-        GradientPresetUi.Save(owner, presets);
+        GradientPresetUi.Save(owner, existing?.Id, ToPreset(name, existing?.Favorite == true));
     }
 
     /// <summary>Snapshot of every edited setting, including the spatial state hidden in the tool's editor.</summary>

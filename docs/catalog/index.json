@@ -1,0 +1,383 @@
+{
+  "schemaVersion": 1,
+  "page": 1,
+  "pageCount": 1,
+  "totalCount": 11,
+  "next": null,
+  "packages": [
+    {
+      "id": "gpixel.effects.hit-reaction",
+      "version": "1.0.0",
+      "name": "Hit Reaction",
+      "summary": "A white flash with a decaying shake for the frames where a character takes damage.",
+      "tags": [
+        "effect",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "effect-recipe": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.effects.hit-reaction-1.0.0.gpixel-asset",
+        "size": 2479,
+        "sha256": "90a1216c17dec71cae5244c4a615dd40085816a861381efebd89cb4f7fa623ae"
+      },
+      "preview": {
+        "url": "previews/gpixel.effects.hit-reaction-1.0.0.png",
+        "size": 272,
+        "sha256": "c4bcc4a9cd6ecc2d221177c703a67abbc0586d05687f12030eee71a551d49502"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.effects.outlined-drop-shadow",
+      "version": "1.0.0",
+      "name": "Outlined Drop Shadow",
+      "summary": "A black outline with a soft drop shadow \u2014 a quick way to make a sprite read on any background.",
+      "tags": [
+        "effect",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "effect-recipe": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.effects.outlined-drop-shadow-1.0.0.gpixel-asset",
+        "size": 2711,
+        "sha256": "413399263dd886ef8d471c8f59521a6f4c7bf296443beee93d05d5d02f22fb32"
+      },
+      "preview": {
+        "url": "previews/gpixel.effects.outlined-drop-shadow-1.0.0.png",
+        "size": 411,
+        "sha256": "fa998ee061e50d4decdb771ac35f9944769c3f12281d67d1730b79834c1b5c68"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.effects.shiny-pickup",
+      "version": "1.0.0",
+      "name": "Shiny Pickup",
+      "summary": "A warm outline, a light sweep and a gentle bob for coins and items.",
+      "tags": [
+        "effect",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "effect-recipe": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.effects.shiny-pickup-1.0.0.gpixel-asset",
+        "size": 2836,
+        "sha256": "d84cd64dee9cc594fbab8ea48df736ca7aa3a2c0f328b5e624bc248a3756a7af"
+      },
+      "preview": {
+        "url": "previews/gpixel.effects.shiny-pickup-1.0.0.png",
+        "size": 540,
+        "sha256": "daaa07595fa19dd23fb8e3a92905844ea505198a5387f4dc3bafa45322a72c6c"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.fire",
+      "version": "1.0.0",
+      "name": "Fire",
+      "summary": "The Fire gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.fire-1.0.0.gpixel-asset",
+        "size": 2289,
+        "sha256": "e519ae99ae400774bd4a63b78723b328e53dfb8da21d620e2525156d59d89b2d"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.fire-1.0.0.png",
+        "size": 236,
+        "sha256": "7ccbfb23e9ab34bceb5aa4564f69cb47aa81d2683cc0306dc45a83ab0c7f07aa"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.forest",
+      "version": "1.0.0",
+      "name": "Forest",
+      "summary": "The Forest gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.forest-1.0.0.gpixel-asset",
+        "size": 2274,
+        "sha256": "d81590f00e500cac6e16e783f511c0377b270a48bde9358c55f667bc71e876ff"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.forest-1.0.0.png",
+        "size": 212,
+        "sha256": "eb3c8437cfc9128a13a468dd1eab8435bbc67aa86c58c38586306987a89767cf"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.grayscale",
+      "version": "1.0.0",
+      "name": "Grayscale",
+      "summary": "The Grayscale gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.grayscale-1.0.0.gpixel-asset",
+        "size": 2170,
+        "sha256": "8fb394cfd65fb5a7e2de9bca3eb870c32482186cea0596fb3318318e7053bdf6"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.grayscale-1.0.0.png",
+        "size": 119,
+        "sha256": "1256107deafa816955fe2b9a62a3127be7033412d808b3e360ccff68bb0c20fc"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.ocean",
+      "version": "1.0.0",
+      "name": "Ocean",
+      "summary": "The Ocean gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.ocean-1.0.0.gpixel-asset",
+        "size": 2277,
+        "sha256": "a229e8341dde0ecb8c2d4fb1a1bdfae806aa369c27eb84b9d138f7bd22f860e8"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.ocean-1.0.0.png",
+        "size": 224,
+        "sha256": "28c946bdbd8b5aab45c1d9db50fe7ee5cd69b38709045e0e1b59324b11d2a033"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.rainbow",
+      "version": "1.0.0",
+      "name": "Rainbow",
+      "summary": "The Rainbow gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.rainbow-1.0.0.gpixel-asset",
+        "size": 2410,
+        "sha256": "e412d23f57ca53c39e60e7489715bb8c9e4cbab2ac0a2eebb68b9048b7011642"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.rainbow-1.0.0.png",
+        "size": 326,
+        "sha256": "00f0b5659021916059b510436ad630d3cecdf34782e419898a9df699d83ffe2a"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.repeating-rainbow",
+      "version": "1.0.0",
+      "name": "Repeating Rainbow",
+      "summary": "The Repeating Rainbow gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.repeating-rainbow-1.0.0.gpixel-asset",
+        "size": 2515,
+        "sha256": "a99d9727875d58b136d58800ec6fe9728c7e9cea6196be01b85a6f4a918d277a"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.repeating-rainbow-1.0.0.png",
+        "size": 346,
+        "sha256": "ed5843ef27f8ba23e1bcdd225d2e143b917ed92899473aea3e17b6d119b7ee45"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.sunset",
+      "version": "1.0.0",
+      "name": "Sunset",
+      "summary": "The Sunset gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.sunset-1.0.0.gpixel-asset",
+        "size": 2299,
+        "sha256": "391767f22b34b67663e74533d90cf816400b68c88f1c44328d50cda1fa8be523"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.sunset-1.0.0.png",
+        "size": 238,
+        "sha256": "f5bc8c10926df975d97493495acbbc0cf6135ee6da61d28d4df39b312b8f7066"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    },
+    {
+      "id": "gpixel.gradients.transparent-fade",
+      "version": "1.0.0",
+      "name": "Transparent Fade",
+      "summary": "The Transparent Fade gradient from Gpixel\u0027s built-in set.",
+      "tags": [
+        "gradient",
+        "starter",
+        "official"
+      ],
+      "author": {
+        "id": "gpixel",
+        "name": "Gpixel",
+        "url": "https://1000pro-1997.github.io/GPixel/"
+      },
+      "license": "MIT",
+      "kinds": {
+        "gradient": 1
+      },
+      "minAppVersion": "1.14.55",
+      "package": {
+        "url": "packages/gpixel.gradients.transparent-fade-1.0.0.gpixel-asset",
+        "size": 2223,
+        "sha256": "6978649048bd7fb91d62b8812b5131e1a8e70e8a4e37d54f50b3819939482bf6"
+      },
+      "preview": {
+        "url": "previews/gpixel.gradients.transparent-fade-1.0.0.png",
+        "size": 120,
+        "sha256": "723009964914de4d7da700a42b51a5a2604e47af0134f43b219ea1a8de2575ea"
+      },
+      "published": "2026-10-28",
+      "updated": "2026-10-28",
+      "review": "official"
+    }
+  ]
+}

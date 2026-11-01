@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Gpixel.Core.AiDraw;
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.IO;
 using Gpixel.Core.Model;
 using ImageAnchor = Gpixel.Core.Model.Anchor;
@@ -590,7 +591,7 @@ public sealed partial class PixelTools
                     o["activeSkin"] = l.ActiveSkin?.Name;
                     if (l.AutoLayout is { } al) o["autoLayout"] = LayoutText(al);
                 }
-                if (l.Effects.Count > 0) o["effects"] = Strings(l.Effects.Select(EffectSettings.TypeId).ToArray());
+                if (l.Effects.Count > 0) o["effects"] = Strings(l.Effects.Select(EffectRegistry.TypeIdOf).ToArray());
                 layers.Add(o);
             }
             doc["layers"] = layers;

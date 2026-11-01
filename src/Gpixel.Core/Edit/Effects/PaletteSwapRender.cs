@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Drawing;
 using Gpixel.Core.Model;
 
@@ -12,28 +13,33 @@ internal static class PaletteSwapRender
         if (pairs.Count == 0) return;
         int tol = p.Tolerance;
         var px = image.Pixels;
+        int w = image.Width, h = image.Height;
         if (p.ColorGradients.Count == 0)
         {
-            // Solid colors: cache the first matching pair for each original pixel color.
-            var memo = new Dictionary<uint, Color32>();
-            for (int i = 0; i < px.Length; i++)
+            // Solid colors: cache the first matching pair for each original pixel color (shared by rows running together).
+            var memo = new ConcurrentDictionary<uint, Color32>();
+            EffectParallel.For(0, h, w, y =>
             {
-                var c = px[i];
-                if (c.A == 0) continue;
-                if (!memo.TryGetValue(c.Argb, out var result))
+                var row = px.AsSpan(y * w, w);
+                for (int x = 0; x < row.Length; x++)
                 {
-                    result = c;
-                    foreach (var pair in pairs)
+                    var c = row[x];
+                    if (c.A == 0) continue;
+                    if (!memo.TryGetValue(c.Argb, out var result))
                     {
-                        var f = pair.From;
-                        if (Math.Abs(c.R - f.R) > tol || Math.Abs(c.G - f.G) > tol || Math.Abs(c.B - f.B) > tol) continue;
-                        result = pair.To.WithAlpha((byte)((c.A * pair.To.A + 127) / 255));
-                        break;
+                        result = c;
+                        foreach (var pair in pairs)
+                        {
+                            var f = pair.From;
+                            if (Math.Abs(c.R - f.R) > tol || Math.Abs(c.G - f.G) > tol || Math.Abs(c.B - f.B) > tol) continue;
+                            result = pair.To.WithAlpha((byte)((c.A * pair.To.A + 127) / 255));
+                            break;
+                        }
+                        memo[c.Argb] = result;
                     }
-                    memo[c.Argb] = result;
+                    row[x] = result;
                 }
-                px[i] = result;
-            }
+            });
             return;
         }
 
@@ -45,22 +51,24 @@ internal static class PaletteSwapRender
             from[j] = EffectGradientSampler.For(p, $"Pairs[{j}].From", bounds, pairs[j].From, source.X, source.Y);
             to[j] = EffectGradientSampler.For(p, $"Pairs[{j}].To", bounds, pairs[j].To, source.X, source.Y);
         }
-        int w = image.Width;
-        for (int i = 0; i < px.Length; i++)
+        EffectParallel.For(0, h, w, y =>
         {
-            var c = px[i];
-            if (c.A == 0) continue;
-            int x = i % w, y = i / w;
-            for (int j = 0; j < pairs.Count; j++)
+            var row = px.AsSpan(y * w, w);
+            for (int x = 0; x < row.Length; x++)
             {
-                var f = from[j].Sample(x, y);
-                if (from[j].HasGradient && f.A == 0) continue;
-                if (Math.Abs(c.R - f.R) > tol || Math.Abs(c.G - f.G) > tol || Math.Abs(c.B - f.B) > tol) continue;
-                var target = to[j].Sample(x, y);
-                px[i] = to[j].HasGradient ? LayerEffects.Mix(c, target, target.A)
-                    : target.WithAlpha((byte)((c.A * target.A + 127) / 255));
-                break;
+                var c = row[x];
+                if (c.A == 0) continue;
+                for (int j = 0; j < pairs.Count; j++)
+                {
+                    var f = from[j].Sample(x, y);
+                    if (from[j].HasGradient && f.A == 0) continue;
+                    if (Math.Abs(c.R - f.R) > tol || Math.Abs(c.G - f.G) > tol || Math.Abs(c.B - f.B) > tol) continue;
+                    var target = to[j].Sample(x, y);
+                    row[x] = to[j].HasGradient ? LayerEffects.Mix(c, target, target.A)
+                        : target.WithAlpha((byte)((c.A * target.A + 127) / 255));
+                    break;
+                }
             }
-        }
+        });
     }
 }

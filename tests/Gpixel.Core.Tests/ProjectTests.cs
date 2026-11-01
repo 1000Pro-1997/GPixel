@@ -637,6 +637,29 @@ public class ProjectTests
     }
 
     [Fact]
+    public void SaveJob_ProjectChangedWhileWriting_StaysDirty()
+    {
+        using var dir = new TempDir();
+        var path = dir.File("busy.gpixel");
+        var p = new SpriteProject(4, 4);
+        p.IsDirty = true;
+
+        // 작업 스레드가 쓰는 동안 UI 스레드에서 바뀐 것: 파일에 없는 변경이 있으니 수정됨이 남아야 한다
+        var job = ProjectIO.BeginSave(p, path);
+        p.AddFrame();
+        job.Run();
+        job.Finish();
+        Assert.True(p.IsDirty);
+        Assert.Equal(Path.GetFullPath(path), p.Path);
+
+        // 바뀐 것이 없으면 꺼진다
+        var again = ProjectIO.BeginSave(p);
+        again.Run();
+        again.Finish();
+        Assert.False(p.IsDirty);
+    }
+
+    [Fact]
     public void Export_ImageFormat_WritesThatFormatWithMeta_PersistsAndRenames()
     {
         using var dir = new TempDir();

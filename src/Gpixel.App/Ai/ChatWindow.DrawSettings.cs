@@ -4,7 +4,7 @@ using Gpixel.App.Localization;
 namespace Gpixel.App.Ai;
 
 // 그리기 설정 칸(머리줄 "?" 옆 슬라이더 단추): 도움말 칸과 같은 오른쪽 자리·움직임을 쓰고, 둘 중 하나만 열린다.
-// 그리는 방식(그림 생성 → 픽셀 변환 / 직접 찍기)과 고른 방식의 하위 옵션(그림 생성: 결과 크기·배경 지우기·자동 최적화·넣는 곳·스타일 참고·애니메이션,
+// 그리는 방식(그림 생성 → 픽셀 변환 / 직접 찍기 / 직접 찍기 + 자동 체크)과 고른 방식의 하위 옵션(그림 생성: 결과 크기·배경 지우기·자동 최적화·넣는 곳·스타일 참고·애니메이션,
 // 직접 찍기: 팔레트 색만 사용)을 고친다. 선택지마다 한 줄 이름과 흐린 정보 아이콘만 보이고 설명은 마우스를 올리면 풍선으로 뜬다.
 // 그림 생성은 Codex만 하므로 Claude 탭을 보고 있으면 생성 선택지 옆에 빨간 경고 아이콘(마우스를 올리면 까닭)이 보인다.
 public sealed partial class ChatWindow
@@ -12,7 +12,7 @@ public sealed partial class ChatWindow
     /// <summary>결과 크기 칸의 고정 값(0 = 자동, 마지막 칸은 직접 입력).</summary>
     private static readonly int[] SizeChoices = [32, 48, 64];
 
-    private RadioButton? _modeGenerate, _modeDirect;
+    private RadioButton? _modeGenerate, _modeDirect, _modeAutoCheck;
     private Border? _modeWarning;
     private TextBlock? _codexStatus;
     private Control? _generateOptions;
@@ -98,10 +98,14 @@ public sealed partial class ChatWindow
         stack.Children.Add(TitleText(UiStrings.AiDraw_Mode_Title));
         _modeGenerate = new RadioButton { Content = UiStrings.AiDraw_Mode_Generate, GroupName = "aidraw-mode", Foreground = AppTheme.TextBrush };
         _modeDirect = new RadioButton { Content = UiStrings.AiDraw_Mode_Direct, GroupName = "aidraw-mode", Foreground = AppTheme.TextBrush };
+        _modeAutoCheck = new RadioButton { Content = UiStrings.AiDraw_Mode_AutoCheck, GroupName = "aidraw-mode", Foreground = AppTheme.TextBrush };
         _modeWarning = AlertIcon(UiStrings.AiDraw_Mode_ClaudeWarning);
         _modeGenerate.IsCheckedChanged += (_, _) => OnDrawModeChanged();
+        _modeDirect.IsCheckedChanged += (_, _) => OnDrawModeChanged();
+        _modeAutoCheck.IsCheckedChanged += (_, _) => OnDrawModeChanged();
         stack.Children.Add(WithInfo(_modeGenerate, UiStrings.AiDraw_Mode_Generate_Text, _modeWarning));
         stack.Children.Add(WithInfo(_modeDirect, UiStrings.AiDraw_Mode_Direct_Text));
+        stack.Children.Add(WithInfo(_modeAutoCheck, UiStrings.AiDraw_Mode_AutoCheck_Text));
         // 직접 찍기를 골랐을 때만: 팔레트 색만 사용.
         _paletteOnly = Ui.Check(UiStrings.AiDraw_PaletteOnly);
         _paletteOnly.IsCheckedChanged += (_, _) => OnDrawOptionChanged();
@@ -262,6 +266,7 @@ public sealed partial class ChatWindow
         {
             _modeGenerate.IsChecked = o.Mode == AiDrawMode.Generate;
             _modeDirect!.IsChecked = o.Mode == AiDrawMode.Direct;
+            _modeAutoCheck!.IsChecked = o.Mode == AiDrawMode.DirectAutoCheck;
             _modeWarning!.IsVisible = _visible.Provider.Id != AiDrawSettings.GeneratingProvider;
             int size = o.SizeTargetClamped;
             int index = Array.IndexOf(SizeChoices, size);
@@ -308,7 +313,7 @@ public sealed partial class ChatWindow
     private void UpdateDrawOptionsEnabled()
     {
         if (_generateOptions is null) return;
-        // 고른 방식의 하위 옵션만 보인다: 그림 생성 → 생성 옵션, 직접 찍기 → 팔레트 색만 사용.
+        // 고른 방식의 하위 옵션만 보인다: 그림 생성 → 생성 옵션, 직접 찍기(자동 체크 포함) → 팔레트 색만 사용.
         bool generate = _settings.AiDraw.Mode == AiDrawMode.Generate;
         _generateOptions.IsVisible = generate;
         _paletteRow!.IsVisible = !generate;
@@ -321,7 +326,10 @@ public sealed partial class ChatWindow
     private void OnDrawModeChanged()
     {
         if (_drawFilling || _modeGenerate is null) return;
-        _settings.AiDraw.Mode = _modeGenerate.IsChecked == true ? AiDrawMode.Generate : AiDrawMode.Direct;
+        if (_modeGenerate.IsChecked == true) _settings.AiDraw.Mode = AiDrawMode.Generate;
+        else if (_modeAutoCheck!.IsChecked == true) _settings.AiDraw.Mode = AiDrawMode.DirectAutoCheck;
+        else if (_modeDirect!.IsChecked == true) _settings.AiDraw.Mode = AiDrawMode.Direct;
+        else return;
         UpdateDrawOptionsEnabled();
     }
 

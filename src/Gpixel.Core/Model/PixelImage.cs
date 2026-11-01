@@ -144,18 +144,27 @@ public sealed class PixelImage
         if (opacity == 0) return;
         int x0 = Math.Max(dx, 0), y0 = Math.Max(dy, 0);
         int x1 = Math.Min(dx + source.Width, Width), y1 = Math.Min(dy + source.Height, Height);
-        for (int y = y0; y < y1; y++)
+        if (x1 <= x0) return;
+        var src = source.Pixels;
+        var dst = Pixels;
+        int sw = source.Width, w = Width;
+        void Row(int y)
         {
-            int si = (y - dy) * source.Width + (x0 - dx);
-            int di = y * Width + x0;
-            for (int x = x0; x < x1; x++, si++, di++)
+            var from = src.AsSpan((y - dy) * sw + (x0 - dx), x1 - x0);
+            var to = dst.AsSpan(y * w + x0, x1 - x0);
+            for (int x = 0; x < to.Length; x++)
             {
-                var s = source.Pixels[si];
+                var s = from[x];
                 if (s.A == 0) continue;
                 if (opacity != 255) s = s.WithAlpha((byte)((s.A * opacity + 127) / 255));
-                Pixels[di] = Color32.BlendOver(Pixels[di], s);
+                to[x] = Color32.BlendOver(to[x], s);
             }
         }
+        // 자기 자신을 겹쳐 놓으면 먼저 합성한 줄을 다시 읽을 수 있어 차례대로, 아니면 줄마다 나눠서
+        if (ReferenceEquals(src, dst))
+            for (int y = y0; y < y1; y++) Row(y);
+        else
+            Edit.EffectParallel.For(y0, y1, x1 - x0, Row);
     }
 
     /// <summary>
@@ -198,20 +207,45 @@ public sealed class PixelImage
     public Rectangle GetOpaqueBounds(Rectangle? within = null)
     {
         var r = Rectangle.Intersect(within ?? Bounds, Bounds);
+        if (r.Width <= 0 || r.Height <= 0) return Rectangle.Empty;
+        var px = Pixels;
+        int w = Width, left = r.Left, right = r.Right;
         int minX = int.MaxValue, minY = int.MaxValue, maxX = -1, maxY = -1;
-        for (int y = r.Top; y < r.Bottom; y++)
+        // 줄마다 양 끝에서 안쪽으로 첫 불투명 픽셀을 찾고, 여러 줄이 함께 최솟값·최댓값에 합친다
+        Edit.EffectParallel.For(r.Top, r.Bottom, r.Width, y =>
         {
-            int row = y * Width;
-            for (int x = r.Left; x < r.Right; x++)
-            {
-                if (Pixels[row + x].A == 0) continue;
-                if (x < minX) minX = x;
-                if (x > maxX) maxX = x;
-                if (y < minY) minY = y;
-                maxY = y;
-            }
-        }
+            var row = px.AsSpan(y * w + left, right - left);
+            int first = 0;
+            while (first < row.Length && row[first].A == 0) first++;
+            if (first == row.Length) return;
+            int last = row.Length - 1;
+            while (row[last].A == 0) last--;
+            LowerTo(ref minX, left + first);
+            RaiseTo(ref maxX, left + last);
+            LowerTo(ref minY, y);
+            RaiseTo(ref maxY, y);
+        });
         return maxX < 0 ? Rectangle.Empty : Rectangle.FromLTRB(minX, minY, maxX + 1, maxY + 1);
+    }
+
+    private static void LowerTo(ref int target, int value)
+    {
+        for (int current = Volatile.Read(ref target); value < current;)
+        {
+            int seen = Interlocked.CompareExchange(ref target, value, current);
+            if (seen == current) return;
+            current = seen;
+        }
+    }
+
+    private static void RaiseTo(ref int target, int value)
+    {
+        for (int current = Volatile.Read(ref target); value > current;)
+        {
+            int seen = Interlocked.CompareExchange(ref target, value, current);
+            if (seen == current) return;
+            current = seen;
+        }
     }
 
     /// <summary>두 이미지의 크기와 모든 픽셀이 같으면 true.</summary>

@@ -42,6 +42,8 @@ public static class AiCli
         - A group is also a skin slot: its skins (outfits) are alternative drawings of the same parts, and only the active skin is shown and edited. A part's empty cel in a non-base skin shows the base (first) skin's drawing. A single part may wear a different skin than its group (override). A part can also have its own part-only skins (e.g. a hat only for Head) that no other part or the group list shows; they are worn only through that part's override. Use list_skins to see them (part-only skins under partSkins), add_skin to add one (with part = a part-only skin for that part) and set_skin to switch (set_skin with part = only that part, accepting its part-only skins; follow_group = back to the group's skin); check which skin a part shows before drawing on it. Outfit presets save every group's skin + overrides under a name: list_outfits, save_outfit, apply_outfit.
         - For sprites and detailed art prefer draw_pixels: rows of characters plus a legend mapping each character to a color; a space (or a character missing from the legend) leaves that pixel unchanged. Use draw_shape, fill, set_pixels and clear for simple shapes and touch-ups.
         - References (when drawing directly with the pixel tools): before drawing a new sprite or animation, call get_style_rules once per conversation and search_references for similar items (subject words, kind, size; similar_to_canvas when improving existing art). When a reference fits, look at it with get_reference (as="pixels" to copy proportions exactly) and follow its proportions, outline and palette style. After drawing, check the result with get_image against the rules and fix problems. add_reference and set_reference_info only write to the reference library; use them when the user asks to keep or caption references.
+        - In direct auto-check mode, after the first drawing inspect the visible composite with get_image (and relevant frames for animation). Compare what you can actually see with the user's explicit requirements, attached images and applicable style rules. If important details are missing or wrong, make targeted pixel edits and inspect again before finishing; do not claim a check you did not perform. If a constraint cannot be met, say what remains wrong instead of repeating without progress.
+        - After any completed drawing, include a concise final "자체 평가: N/100" (or the equivalent in the user's language) with the visual criteria used and one concrete limitation if any. This is your subjective assessment of the inspected result, not an automated similarity score or the converter's optimization score. Compare attached examples when available; never invent a numeric test result when the canvas/result could not be inspected. In generate-image mode, do not modify the generated image unless the user requests it; report the assessment alongside the brief result.
         - Layer effects are non-destructive: they are drawn on top of a layer (or a group's composite) without changing its pixels and can be changed or removed later. Prefer them over painting when the user asks for an outline, drop shadow, rim light, glow, color overlay/tint/palette swap or reflection, or for timed animation effects such as a hit flash, blink, shake, bob, appear/disappear, fade, squash, explode, melt, rotate, afterimage, color cycle, shockwave or shine. Call list_effect_types for the type ids, settings and defaults, then add_effect (only the settings you change; animated effects play over their from_frame..to_frame range), get_effects to inspect, set_effect to tweak, reorder, retime or disable, and remove_effect. Use apply_effects (bakes effects into pixels) only when the user explicitly asks for it, and expand_canvas_for_effects when effects spill outside the canvas and the user wants them kept.
         - Colors are "#RRGGBB", "#RRGGBBAA" or "transparent". Prefer colors from the document palette unless the user asks otherwise.
         - After editing, verify the result with get_image and fix mistakes before you reply.
@@ -55,11 +57,17 @@ public static class AiCli
         """;
 
     /// <summary>메시지 앞에 붙여 모델에게 알리는 그리는 방식(영어, 화면에는 보이지 않음 — <see cref="Gpixel.Core.AiDraw.AiDrawSettings.EffectiveMode"/>).</summary>
-    public static string DrawingModeLine(Gpixel.Core.AiDraw.AiDrawMode mode, bool canGenerate) => mode == Gpixel.Core.AiDraw.AiDrawMode.Generate
-        ? "[Gpixel drawing mode: generate-image. Draw new art with generate_pixel_art; use the pixel tools only for small edits or when asked to place pixels by hand.]"
-        : canGenerate
-            ? "[Gpixel drawing mode: direct. Draw with the pixel tools; call generate_pixel_art only if the user explicitly asks for image generation.]"
-            : "[Gpixel drawing mode: direct. You cannot generate images, so draw with the pixel tools. Call generate_pixel_art only if the user explicitly asks to have Codex generate the image.]";
+    public static string DrawingModeLine(Gpixel.Core.AiDraw.AiDrawMode mode, bool canGenerate)
+    {
+        string line = mode == Gpixel.Core.AiDraw.AiDrawMode.Generate
+            ? "[Gpixel drawing mode: generate-image. Draw new art with generate_pixel_art; use the pixel tools only for small edits or when asked to place pixels by hand.]"
+            : canGenerate
+                ? "[Gpixel drawing mode: direct. Draw with the pixel tools; call generate_pixel_art only if the user explicitly asks for image generation.]"
+                : "[Gpixel drawing mode: direct. You cannot generate images, so draw with the pixel tools. Call generate_pixel_art only if the user explicitly asks to have Codex generate the image.]";
+        return mode == Gpixel.Core.AiDraw.AiDrawMode.DirectAutoCheck
+            ? line + "\n[Gpixel auto-check: inspect the actual canvas against the request and references, correct important misses, inspect again, and give an honest final self-rating.]"
+            : line;
+    }
 
     /// <summary>"팔레트 색만 사용"일 때 메시지 앞에 붙여 모델에게 알리는 팔레트 색(영어, 화면에는 보이지 않음 — <see cref="Gpixel.Core.AiDraw.PaletteLock"/>).</summary>
     public static string PaletteLine(Gpixel.Core.AiDraw.PaletteLock palette)

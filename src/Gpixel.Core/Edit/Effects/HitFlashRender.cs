@@ -13,12 +13,16 @@ internal static class HitFlashRender
         var px = image.Pixels;
         var color = EffectGradientSampler.For(e, nameof(e.Color), image.GetOpaqueBounds(), e.Color, source.X, source.Y);
         int w = image.Width;
-        for (int i = 0; i < px.Length; i++)
-            if (px[i].A != 0)
-            {
-                var sampled = color.Sample(i % w, i / w);
-                int strength = color.HasGradient ? (amount * sampled.A + 127) / 255 : amount;
-                px[i] = LayerEffects.Mix(px[i], sampled, strength);
-            }
+        EffectParallel.For(0, image.Height, w, y =>
+        {
+            var row = px.AsSpan(y * w, w);
+            for (int x = 0; x < row.Length; x++)
+                if (row[x].A != 0)
+                {
+                    var sampled = color.Sample(x, y);
+                    int strength = color.HasGradient ? (amount * sampled.A + 127) / 255 : amount;
+                    row[x] = LayerEffects.Mix(row[x], sampled, strength);
+                }
+        });
     }
 }

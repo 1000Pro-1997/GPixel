@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,12 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi HologramUi => EffectUi.For<HologramEffect>(HologramDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_2B322D7A38, UiStrings.S_LayerEffectsDialog_KindTable_EF5C5A3497,
+        Avalonia.Media.Color.FromRgb(0, 180, 255), (dialog, e, set) => dialog.HologramPanel(e, set),
+        holo => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_8FC3C16840,holo.Color.ToHex(),holo.TintStrength,holo.Opacity) + (holo.Dither ? UiStrings.S_LayerEffectsDialog_Summary_823544BC03 : "")
+            + (holo.GlitchRate > 0 ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_7B535BB782,holo.GlitchRate) : ""));
+
     /// <summary>홀로그램 설정: 색·색 세기, 주사선(간격·세기·방식·흐르기), 밝은 띠, 투명도(디더), 깜빡임, 글리치(RGB 분리), 테두리 빛, 시드.</summary>
     private void HologramPanel(HologramEffect e, Action<Func<LayerEffect, LayerEffect>> set)
     {

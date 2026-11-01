@@ -36,3 +36,8 @@ jobs:
           dotnet run --project tools/GuideShots -c Release -- --shortcuts docs/i18n/shortcuts.json
           git diff --exit-code docs/i18n/shortcuts.json
           python3 tools/build-docs.py --check
+
+      # 온라인 에셋 카탈로그(docs/catalog)가 catalog/의 제출 패키지를 검사해 만든 그대로인지
+      - name: Asset catalog up to date
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet run --project tools/CatalogBuilder -c Release -- --check

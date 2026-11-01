@@ -139,6 +139,8 @@ public sealed class PreviewPanel : UserControl
             _view.InvalidateVisual();
         };
         ctx.ViewChanged += (_, _) => _view.InvalidateVisual();
+        ctx.RenderUpdated += (_, _) => _view.InvalidateVisual();
+        _busyTimer.Tick += (_, _) => _view.InvalidateVisual();
         // 재생 중에 태그를 만들거나 고르면 그 태그 안에서 반복하도록 순서를 바꾼다.
         ctx.CurrentChanged += (_, _) => RefreshOrder();
         ctx.ProjectChanged += (_, e) =>
@@ -479,20 +481,42 @@ public sealed class PreviewPanel : UserControl
         if (!_ctx.HasProject || _order.Count == 0) { Stop(); return; }
         _elapsedInFrame += _clock.Elapsed.TotalMilliseconds;
         _clock.Restart();
-        bool changed = false;
+        bool changed = false, waiting = false;
         int guard = 0;
         while (_elapsedInFrame >= FrameMs(_order[_orderIndex]) && guard++ < 1000)
         {
+            int next = _orderIndex + 1 < _order.Count ? _orderIndex + 1 : _ctx.PlaybackLoops ? 0 : -1;
+            if (next < 0) { Stop(); return; }
+            // 다음 프레임 합성이 아직이면(작업 스레드에서 계산 중) 지금 프레임을 그대로 두고 기다린다 — 회색 프레임을 끼우지 않는다.
+            if (_ctx.FrameView(_order[next], RenderPriority.Current).Pending)
+            {
+                _elapsedInFrame = FrameMs(_order[_orderIndex]);
+                _waitFrame = _order[next];
+                waiting = true;
+                break;
+            }
             _elapsedInFrame -= FrameMs(_order[_orderIndex]);
-            if (_orderIndex + 1 < _order.Count) _orderIndex++;
-            else if (_ctx.PlaybackLoops) _orderIndex = 0;
-            else { Stop(); return; }
+            _orderIndex = next;
             changed = true;
         }
+        // 곧 보일 프레임을 미리 계산해 둔다
+        for (int k = 1; k <= 2 && _order.Count > 1; k++) _ctx.FrameView(_order[(_orderIndex + k) % _order.Count], RenderPriority.Soon);
+        if (waiting != _waiting)
+        {
+            _waiting = waiting;
+            _view.InvalidateVisual();
+        }
+        else if (waiting) _view.InvalidateVisual(); // 로딩 아이콘이 돈다
         if (!changed) return;
         PlayingFrameChanged?.Invoke(this, ShownFrame);
         _view.InvalidateVisual();
     }
+
+    /// <summary>재생 중 다음 프레임 합성을 기다리는 중인지와 그 프레임.</summary>
+    private bool _waiting;
+    private int _waitFrame;
+    /// <summary>멈춰 있을 때 로딩 아이콘을 돌리려고 다시 그리는 타이머.</summary>
+    private readonly DispatcherTimer _busyTimer = new() { Interval = RenderOverlay.FrameInterval };
 
     /// <summary>미리보기를 그리는 영역.</summary>
     private sealed class View : Control
@@ -514,8 +538,19 @@ public sealed class PreviewPanel : UserControl
             if (!ctx.HasProject) return;
             var area = new Rect(4, 4, Math.Max(0, bounds.Width - 8), Math.Max(0, bounds.Height - 24));
             int frame = Math.Clamp(_owner.ShownFrame, 0, Math.Max(0, ctx.FrameCount - 1));
-            if (ctx.FrameBitmap(frame) is not { } bmp) return;
-            ImageUtil.DrawFitted(g, bmp, new Rectangle(0, 0, bmp.PixelSize.Width, bmp.PixelSize.Height), area, _owner._scale);
+            var view = ctx.FrameView(frame);
+            if (view.Bitmap is not { } bmp) return;
+            var shown = ImageUtil.DrawFitted(g, bmp, new Rectangle(0, 0, bmp.PixelSize.Width, bmp.PixelSize.Height), area, _owner._scale);
+            // 재생 중 다음 프레임을 기다리거나, 보이는 프레임을 다시 계산하는 중이면 로딩 아이콘(그림은 이전 것 그대로)
+            var wait = _owner._waiting && _owner._waitFrame < ctx.FrameCount ? ctx.FrameView(_owner._waitFrame) : view;
+            if (wait.Overlay) RenderOverlay.DrawBusy(g, shown.Intersect(bounds), wait.Progress);
+            // 멈춰 있을 때도 로딩 아이콘이 돌도록(재생 중에는 재생 타이머가 다시 그린다)
+            bool spin = wait.Overlay && !_owner.IsPlaying;
+            if (spin != _owner._busyTimer.IsEnabled)
+            {
+                if (spin) _owner._busyTimer.Start();
+                else _owner._busyTimer.Stop();
+            }
             var tag = ctx.ActiveTag;
             string caption = $"{frame + 1}/{ctx.FrameCount} · {ctx.FrameDuration(frame)}ms" + (tag is null ? "" : $" · {tag.Name}");
             var textBrush = _owner._bgColor is { } c && Lightness(c) > 0.6 ? Brushes.Black : Brushes.White;

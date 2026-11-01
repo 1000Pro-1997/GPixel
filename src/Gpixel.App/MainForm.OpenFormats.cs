@@ -59,12 +59,12 @@ public sealed partial class MainForm
     private void OnWindowDragOver(object? sender, DragEventArgs e)
     {
         e.Handled = true;
-        e.DragEffects = OpenableFiles(e.DataTransfer).Count > 0 ? DragDropEffects.Copy : DragDropEffects.None;
+        e.DragEffects = !WorkOverlay.IsActive && OpenableFiles(e.DataTransfer).Count > 0 ? DragDropEffects.Copy : DragDropEffects.None;
     }
 
     private void OnWindowDrop(object? sender, DragEventArgs e)
     {
-        var files = OpenableFiles(e.DataTransfer);
+        List<string> files = WorkOverlay.IsActive ? [] : OpenableFiles(e.DataTransfer);
         e.Handled = true;
         e.DragEffects = files.Count > 0 ? DragDropEffects.Copy : DragDropEffects.None;
         // 끌어 놓기가 끝난 뒤에 연다(대화상자가 끌기 도중에 뜨지 않게).

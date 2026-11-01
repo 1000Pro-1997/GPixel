@@ -698,6 +698,35 @@ public class LayerEffectTests
     }
 
     [Fact]
+    public void DeleteFrames_ShrinksRangesAcrossTheSpan_DropsOnesInside_OneUndoStep()
+    {
+        var p = new SpriteProject(4, 4);
+        while (p.Frames.Count < 10) p.AddFrame(p.Frames.Count);
+        p.AddTag("mid", 2, 6);
+        p.AddTag("tail", 7, 9);
+        p.SetLayerEffects(0, [
+            new OutlineEffect { Frames = new FrameRange(1, 3) },   // 앞에서 걸침 → 끝이 지우는 칸 앞까지
+            new ShadowEffect { Frames = new FrameRange(4, 5) },    // 모두 지움 → 효과 없어짐
+            new ColorOverlayEffect { Frames = new FrameRange(5, 8) }, // 뒤에서 걸침 → 남는 첫 프레임부터, 당겨짐
+            new OutlineEffect(),                                   // 모든 프레임 → 그대로
+        ]);
+        int steps = p.History.UndoCount;
+
+        p.DeleteFrames(3, 4); // 3~6
+
+        Assert.Equal(6, p.Frames.Count);
+        var effects = p.Layers[0].Effects;
+        Assert.Equal([new FrameRange(1, 2), new FrameRange(3, 4), null], effects.Select(e => e.Frames));
+        Assert.Equal((3, 5), (p.FindTag("tail")!.From, p.FindTag("tail")!.To));
+        Assert.Equal((2, 2), (p.FindTag("mid")!.From, p.FindTag("mid")!.To));
+        Assert.Equal(steps + 1, p.History.UndoCount);
+        Assert.True(p.Undo());
+        Assert.Equal(10, p.Frames.Count);
+        Assert.Equal(4, p.Layers[0].Effects.Count);
+        Assert.Throws<InvalidOperationException>(() => p.DeleteFrames(0, 10));
+    }
+
+    [Fact]
     public void EffectCanvasExpansion_MinimumAddsOnlyOverflowingSides()
     {
         var plan = EffectCanvasExpansion.FromBounds(16, 8, new Rectangle(-3, 2, 22, 7), EffectCanvasExpandMode.Minimum);

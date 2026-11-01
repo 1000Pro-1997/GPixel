@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,17 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi ReflectionUi => EffectUi.For<ReflectionEffect>(ReflectionDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_5627BD3D9D, UiStrings.S_LayerEffectsDialog_KindTable_6A331276D8,
+        Avalonia.Media.Color.FromRgb(70, 150, 200), (dialog, e, set) => dialog.ReflectionPanel(e, set),
+        m => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_54368CD4DD,m.Direction switch
+        {
+            ReflectionDirection.Up => UiStrings.S_LayerEffectsDialog_Summary_99CAC4A07E,
+            ReflectionDirection.Left => UiStrings.Reflection_SummaryLeft,
+            ReflectionDirection.Right => UiStrings.Reflection_SummaryRight,
+            _ => UiStrings.S_LayerEffectsDialog_Summary_F724879C11,
+        },m.Gap,m.Height,m.OpacityStart,m.OpacityEnd) + (m.DitherFade ? UiStrings.S_LayerEffectsDialog_Summary_823544BC03 : ""));
+
     /// <summary>반사 설정: 방향, 간격, 높이(왼쪽·오른쪽이면 너비), 불투명도 시작·끝, 디더 흐리기, 색 입히기, 물결.</summary>
     private void ReflectionPanel(ReflectionEffect m, Action<Func<LayerEffect, LayerEffect>> set)
     {

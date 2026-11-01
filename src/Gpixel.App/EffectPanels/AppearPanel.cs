@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi AppearUi => EffectUi.For<AppearEffect>(AppearDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_F6C9786974, UiStrings.S_LayerEffectsDialog_KindTable_FFF387B9B9,
+        Avalonia.Media.Color.FromRgb(206, 232, 86), (dialog, e, set) => dialog.AppearPanel(e, set),
+        appear => $"{appear.DisplayName} · {AppearStyles[(int)appear.Style]}" + (appear.Style == AppearStyle.Wipe ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_C36AC46BAE,WipeFroms[(int)appear.From]) : ""));
+
     private static readonly string[] AppearStyles = [UiStrings.S_AppearPanel_AppearStyles_E0D9F50D27, UiStrings.S_AppearPanel_AppearStyles_ECD851BCD0, UiStrings.S_AppearPanel_AppearStyles_46BC34F4A2, UiStrings.S_AppearPanel_AppearStyles_9CC60E3158];
     private static readonly string[] WipeFroms = [UiStrings.S_AppearPanel_WipeFroms_EB53C9C591, UiStrings.S_AppearPanel_WipeFroms_0918652A12, UiStrings.S_AppearPanel_WipeFroms_958C17A305, UiStrings.S_AppearPanel_WipeFroms_A2A7C74FBD];
 

@@ -7,6 +7,8 @@ public enum AiDrawMode
     Generate,
     /// <summary>AI가 MCP 픽셀 도구로 직접 찍는다(예전 방식).</summary>
     Direct,
+    /// <summary>직접 찍은 뒤 요청 조건·참고 그림을 자체 평가하고 부족하면 수정·재확인한다.</summary>
+    DirectAutoCheck,
 }
 
 /// <summary>변환한 그림을 넣는 곳.</summary>
@@ -99,8 +101,8 @@ public sealed class AiDrawSettings
     /// <summary>동작 이름(<see cref="AiDrawActions"/>) → 기본 프레임 수. 빠진 동작은 <see cref="AiDrawActions.DefaultFrames"/>.</summary>
     public Dictionary<string, int> FrameCounts { get; set; } = AiDrawActions.DefaultFrameCounts();
 
-    /// <summary>그 AI 탭에서 실제로 쓰는 방식: Codex 탭은 <see cref="Mode"/>, 다른 AI(그림을 만들 수 없음)는 늘 직접 찍기.</summary>
-    public AiDrawMode EffectiveMode(string provider) => provider == GeneratingProvider ? Mode : AiDrawMode.Direct;
+    /// <summary>그 AI 탭에서 실제로 쓰는 방식: Codex 탭은 <see cref="Mode"/>, 다른 AI는 그림 생성 대신 자동 체크 직접 찍기로 그린다(직접 찍기를 명시적으로 고르면 그대로).</summary>
+    public AiDrawMode EffectiveMode(string provider) => provider == GeneratingProvider || Mode != AiDrawMode.Generate ? Mode : AiDrawMode.DirectAutoCheck;
 
     /// <summary>동작의 기본 프레임 수(<see cref="MinFrames"/>~<see cref="MaxFrames"/>).</summary>
     public int FramesFor(string action)

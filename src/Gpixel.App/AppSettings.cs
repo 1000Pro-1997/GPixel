@@ -230,6 +230,17 @@ public sealed class AppSettings
     /// <summary>"다음 업데이트까지 띄우지 않기"로 고른 버전(자동 확인에서 알리지 않음). null = 없음.</summary>
     public string? SkippedVersion { get; set; }
 
+    // 스크립트 효과
+    /// <summary>
+    /// 스크립트 효과를 실행할지 사용자가 정한 것: 원문 해시(SHA-256) → 실행(true)·실행 안 함(false). 없는 해시는 아직 묻지 않은 것이다(13.5).
+    /// 이 컴퓨터에서 쓰거나 가져온 스크립트는 자동으로 true가 된다(<see cref="ScriptTrustStore"/>).
+    /// </summary>
+    public Dictionary<string, bool> ScriptTrust { get; set; } = new();
+
+    // 에셋 게시
+    /// <summary>에셋 게시 창이 기억하는 작성자 정보와 게시용으로 저장한 패키지(<see cref="AssetPublishDialog"/>).</summary>
+    public AssetPublishSettings AssetPublish { get; set; } = new();
+
     /// <summary>처음 실행할 때 쓰는 기본 팔레트(DawnBringer 32).</summary>
     public const string DefaultPaletteName = "DawnBringer 32";
 
@@ -332,4 +343,31 @@ public sealed class PaletteSetting
     /// <summary>읽을 수 없는 색 문자열은 건너뛴다.</summary>
     public NamedPalette ToPalette()
         => new(Name, [.. Colors.Select(h => Color32.TryParseHex(h, out var c) ? c : (Color32?)null).OfType<Color32>()], Collapsed);
+}
+
+/// <summary>에셋 게시 창의 작성자 정보(다음 게시에 다시 채움)와 이 컴퓨터에서 게시용으로 저장한 패키지(최근 것부터, 다음 버전 제안·같은 에셋 다시 게시).</summary>
+public sealed class AssetPublishSettings
+{
+    public const int MaxSaved = 50;
+
+    public string AuthorId { get; set; } = "";
+    public string AuthorName { get; set; } = "";
+    public string AuthorUrl { get; set; } = "";
+    public List<AssetPublishRecord> Saved { get; set; } = new();
+}
+
+/// <summary>게시용으로 저장한 패키지 하나: 패키지 정보와 포함한 개인 에셋 ID, 패키지 SHA-256.</summary>
+public sealed class AssetPublishRecord
+{
+    public string Id { get; set; } = "";
+    public string Version { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public List<string> Tags { get; set; } = new();
+    public string License { get; set; } = "";
+    /// <summary>직접 입력한 라이선스의 글(흔한 SPDX 라이선스는 null — 저장할 때 다시 만든다).</summary>
+    public string? LicenseText { get; set; }
+    public List<string> Assets { get; set; } = new();
+    public DateTime SavedUtc { get; set; }
 }

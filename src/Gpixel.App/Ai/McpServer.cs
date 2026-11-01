@@ -468,12 +468,19 @@ public sealed class McpServer : IDisposable
         }
     }
 
-    /// <summary>도구를 UI 스레드에서 실행한다(오래 걸리는 도구는 UI 스레드에서 기다리며 진행을 알림). 예외는 isError 결과로 바꾼다.</summary>
+    /// <summary>
+    /// 도구를 UI 스레드에서 실행한다(오래 걸리는 도구는 UI 스레드에서 기다리며 진행을 알림). 예외는 isError 결과로 바꾼다.
+    /// 저장·열기 덮개가 떠 있으면(작업 스레드가 프로젝트를 읽는 중) 끝난 뒤에 실행한다.
+    /// </summary>
     private async Task<JsonObject> CallToolAsync(string name, JsonObject? arguments, Action<string>? progress, CancellationToken ct)
     {
         try
         {
-            return await Dispatcher.UIThread.InvokeAsync(() => _tools.CallAsync(name, arguments, progress, ct));
+            return await Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                while (WorkOverlay.IsActive) await WorkOverlay.WhenIdle();
+                return await _tools.CallAsync(name, arguments, progress, ct);
+            });
         }
         catch (Exception e)
         {

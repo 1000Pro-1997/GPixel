@@ -108,14 +108,15 @@ public static class ProjectImport
     /// 분석 결과로 프로젝트를 연다(기존 <c>.gpixel</c>이면 그것을, 아니면 <paramref name="mode"/>(null = 추천)로 가져옴).
     /// 가져온 프로젝트의 <see cref="SpriteProject.Path"/>는 PNG 옆 <c>.gpixel</c> 제안 경로이고 수정됨이 아니다.
     /// </summary>
-    public static ProjectOpenResult Import(ImportAnalysis analysis, ImportMode? mode = null)
+    /// <param name="progress">진행(<c>.gpixel</c>을 열 때 셀 풀기).</param>
+    public static ProjectOpenResult Import(ImportAnalysis analysis, ImportMode? mode = null, WorkProgress? progress = null)
     {
         var warnings = new List<string>();
         if (analysis.Warning is not null) warnings.Add(analysis.Warning);
         bool pickedPng = !analysis.SourcePath.EndsWith(SpriteProject.FileExtension, StringComparison.OrdinalIgnoreCase);
         if (analysis.ExistingProjectPath is { } existing)
         {
-            var project = ProjectIO.Load(existing, warnings);
+            var project = ProjectIO.Load(existing, warnings, progress);
             return new ProjectOpenResult(project, false, pickedPng ? analysis.SourcePath : null, Join(warnings));
         }
         var doc = analysis.Document ?? throw new ArgumentException(Gpixel.Core.Localization.DomainStrings.Import_NoDocument, nameof(analysis));

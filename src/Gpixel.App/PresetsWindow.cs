@@ -1,5 +1,6 @@
 using System.Globalization;
 using Gpixel.App.Localization;
+using Gpixel.Core.Assets;
 using Gpixel.Core.IO;
 
 namespace Gpixel.App;
@@ -12,9 +13,9 @@ public enum PresetsTab
 }
 
 /// <summary>
-/// One window for every preset kind, one tab each. It is modal: the gradient catalog is kept in memory while the window
-/// is open and saved whole, so a gradient bar's "save current" or an open pixelate dialog must not change the same data
-/// meanwhile (their next menu or run reads the saved result).
+/// One window for every preset kind, one tab each. The gradient tab lists the asset catalog's gradients: personal gradients
+/// (editable — saved to the personal asset store) and gradients of enabled installed packages (read-only originals; saving an
+/// edited one stores a personal copy). It is modal; changes made from the asset manager opened here refresh the list.
 /// </summary>
 public sealed class PresetsWindow : DialogBase
 {
@@ -24,24 +25,25 @@ public sealed class PresetsWindow : DialogBase
     private readonly Button _delete;
     private readonly Button _save;
     private readonly TextBlock _title;
+    private readonly TextBlock _note;
     private readonly GradientSwatch _preview;
     private readonly GradientEditor _editor;
     private readonly Control _detail;
-    private List<GradientPreset> _presets;
-    /// <summary>The preset shown in the editor (null when nothing is selected).</summary>
-    private GradientPreset? _loaded;
+    private readonly Action _onAssetsChanged;
+    /// <summary>The entry shown in the editor (null when nothing is selected).</summary>
+    private AssetEntry? _loaded;
     private bool _dirty;
     private bool _refreshing;
     private bool _switchPending;
 
     public static void Open(Window owner, PresetsTab tab = PresetsTab.Gradients)
-        => new PresetsWindow(GradientPresetUi.Load(owner), tab).ShowDialog(owner);
-
-    /// <param name="presets">Gradient catalog; null when it could not be read (the tab is then read-only and empty
-    /// so a damaged catalog is never overwritten).</param>
-    private PresetsWindow(List<GradientPreset>? presets, PresetsTab tab) : base(UiStrings.Presets_Title)
     {
-        _presets = presets ?? [];
+        AppAssets.ShowProblems(owner);
+        new PresetsWindow(tab).ShowDialog(owner);
+    }
+
+    private PresetsWindow(PresetsTab tab) : base(UiStrings.Presets_Title)
+    {
         CloseOnly();
         CancelButtonControl.IsDefault = false; // Enter belongs to the number fields.
         CanResize = true;
@@ -65,11 +67,26 @@ public sealed class PresetsWindow : DialogBase
         _favorite = Ui.Button(VectorIcon.Star, UiStrings.GradientPreset_AddFavorite, (_, _) => ToggleFavorite());
         _rename = Ui.Button(UiStrings.GradientPreset_Rename, (_, _) => Rename());
         _delete = Ui.Button(UiStrings.GradientPreset_Delete, (_, _) => Delete());
+        var manager = Ui.Button(VectorIcon.Package, UiStrings.Assets_ManagerButton,
+            (_, _) => AssetManagerWindow.Open(this, AssetKinds.Gradient, _loaded?.Id));
+        ToolTip.SetTip(manager, UiStrings.Assets_ManagerTip);
         var listButtons = new WrapPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
-        listButtons.Children.AddRange([_favorite, _rename, _delete]);
+        listButtons.Children.AddRange([_favorite, _rename, _delete, manager]);
         var left = new DockPanel();
         DockPanel.SetDock(listButtons, Dock.Bottom);
         left.Children.Add(listButtons);
+        if (AppAssets.Store.PersonalError is { } error)
+        {
+            var warning = new TextBlock
+            {
+                Text = string.Format(CultureInfo.CurrentCulture, UiStrings.GradientPreset_LoadError, error),
+                Foreground = AppTheme.WarningBrush,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 4),
+            };
+            DockPanel.SetDock(warning, Dock.Top);
+            left.Children.Add(warning);
+        }
         left.Children.Add(_list);
 
         _title = new TextBlock
@@ -79,6 +96,7 @@ public sealed class PresetsWindow : DialogBase
             TextTrimming = TextTrimming.CharacterEllipsis,
             Margin = new Thickness(0, 0, 0, 4),
         };
+        _note = new TextBlock { Foreground = AppTheme.DimTextBrush, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6) };
         _preview = new GradientSwatch { Height = 56, Margin = new Thickness(0, 0, 0, 8) };
         _editor = new GradientEditor(spatialAngle: true, presetMenu: false);
         _editor.Changed += OnEditorChanged;
@@ -88,7 +106,7 @@ public sealed class PresetsWindow : DialogBase
         _detail = new StackPanel { Children = { _preview, _editor, _save } };
         var right = new ScrollViewer
         {
-            Content = new StackPanel { Children = { _title, _detail } },
+            Content = new StackPanel { Children = { _title, _note, _detail } },
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Margin = new Thickness(12, 0, 0, 0),
@@ -100,7 +118,6 @@ public sealed class PresetsWindow : DialogBase
             ColumnDefinitions = new ColumnDefinitions("300,*"),
             Margin = new Thickness(0, 8, 0, 0),
             Children = { left, right },
-            IsEnabled = presets is not null,
         };
 
         // ── Auto optimize: the panel edits the presets inside the app settings; they are saved when the window closes.
@@ -128,45 +145,57 @@ public sealed class PresetsWindow : DialogBase
                 Close();
             });
         };
-        Closed += (_, _) => App.Settings.Save();
+        // The asset manager opened from here can disable, delete or copy gradients: rebuild the list, keeping unsaved edits.
+        _onAssetsChanged = () => Dispatcher.UIThread.Post(() => Refresh(_loaded?.Id, keepEdits: true));
+        AppAssets.Changed += _onAssetsChanged;
+        Closed += (_, _) =>
+        {
+            AppAssets.Changed -= _onAssetsChanged;
+            App.Settings.Save();
+        };
         Refresh(null, fallbackRow: 0);
     }
 
-    private GradientPreset? Selected => (_list.SelectedItem as ListBoxItem)?.Tag as GradientPreset;
+    private AssetEntry? Selected => (_list.SelectedItem as ListBoxItem)?.Tag as AssetEntry;
 
-    private static string Format(string format, string name) => string.Format(CultureInfo.CurrentCulture, format, name);
+    private static string Format(string format, params object?[] args) => string.Format(CultureInfo.CurrentCulture, format, args);
 
-    private static Control Row(GradientPreset preset)
+    private static bool IsPersonal(AssetEntry? entry) => entry?.Origin == AssetOrigin.Personal;
+
+    private static Control Row(AssetEntry entry)
     {
         var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        if (preset.Favorite) name.Children.Add(Ui.Icon(VectorIcon.Star, 13, filled: true));
-        name.Children.Add(Ui.Label(preset.Name));
-        var swatch = new GradientSwatch { Preset = preset, Height = 14, Margin = new Thickness(0, 3, 0, 2) };
+        if (entry.Favorite) name.Children.Add(Ui.Icon(VectorIcon.Star, 13, filled: true));
+        name.Children.Add(Ui.Label(entry.Name));
+        if (entry.PackageName is { } package)
+            name.Children.Add(new TextBlock { Text = package, Foreground = AppTheme.DimTextBrush, FontSize = AppTheme.SmallFontSize, VerticalAlignment = VerticalAlignment.Center });
+        var swatch = new GradientSwatch { Preset = entry.Gradient, Height = 14, Margin = new Thickness(0, 3, 0, 2) };
         return new StackPanel { Children = { name, swatch } };
     }
 
-    /// <summary>Rebuilds the list (favorites first) and selects <paramref name="selectName"/>, else the row at
-    /// <paramref name="fallbackRow"/>. <paramref name="keepEdits"/> keeps unsaved editor changes of the same preset.</summary>
-    private void Refresh(string? selectName, int fallbackRow = -1, bool keepEdits = false)
+    /// <summary>Rebuilds the list from the catalog (favorites first) and selects <paramref name="selectId"/>, else the row at
+    /// <paramref name="fallbackRow"/>. <paramref name="keepEdits"/> keeps unsaved editor changes of the same entry.</summary>
+    private void Refresh(string? selectId, int fallbackRow = -1, bool keepEdits = false)
     {
         _refreshing = true;
         try
         {
             _list.Items.Clear();
-            var ordered = _presets.Where(p => p.Favorite).Concat(_presets.Where(p => !p.Favorite)).ToList();
-            foreach (var preset in ordered)
-                _list.Items.Add(new ListBoxItem { Content = Row(preset), Tag = preset, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+            var entries = GradientPresetUi.Available;
+            var ordered = entries.Where(p => p.Favorite).Concat(entries.Where(p => !p.Favorite)).ToList();
+            foreach (var entry in ordered)
+                _list.Items.Add(new ListBoxItem { Content = Row(entry), Tag = entry, HorizontalContentAlignment = HorizontalAlignment.Stretch });
             if (ordered.Count == 0)
                 _list.Items.Add(new ListBoxItem { Content = UiStrings.GradientPreset_Empty, IsEnabled = false });
             else
             {
-                int row = selectName is null ? -1 : ordered.FindIndex(p => p.Name == selectName);
+                int row = selectId is null ? -1 : ordered.FindIndex(p => p.Id == selectId);
                 if (row < 0 && fallbackRow >= 0) row = Math.Min(fallbackRow, ordered.Count - 1);
                 _list.SelectedIndex = row;
             }
         }
         finally { _refreshing = false; }
-        if (keepEdits && _dirty && Selected is { } selected)
+        if (keepEdits && _dirty && Selected is { } selected && selected.Id == _loaded?.Id)
         {
             _loaded = selected;
             _title.Text = selected.Name;
@@ -189,28 +218,31 @@ public sealed class PresetsWindow : DialogBase
         Dispatcher.UIThread.Post(() =>
         {
             _switchPending = false;
+            var next = Selected?.Id;
             AskSaveChanges();
-            LoadSelected();
+            Refresh(next);
         });
     }
 
     private void LoadSelected()
     {
-        var preset = Selected;
-        _loaded = preset;
+        var entry = Selected;
+        _loaded = entry;
         _dirty = false;
-        _title.Text = preset?.Name ?? UiStrings.GradientPreset_SelectHint;
-        _detail.IsEnabled = preset is not null;
-        if (preset is not null) _editor.LoadPreset(preset);
-        _preview.Preset = preset;
+        _title.Text = entry?.Name ?? UiStrings.GradientPreset_SelectHint;
+        _note.Text = entry is { Origin: AssetOrigin.Package } ? Format(UiStrings.Assets_PackageGradientNote, entry.PackageName) : "";
+        _note.IsVisible = _note.Text.Length > 0;
+        _detail.IsEnabled = entry is not null;
+        if (entry?.Gradient is { } gradient) _editor.LoadPreset(gradient);
+        _preview.Preset = entry?.Gradient;
         UpdateButtons();
     }
 
     private void OnEditorChanged()
     {
-        if (_loaded is not { } preset) return;
+        if (_loaded is not { } entry) return;
         _dirty = true;
-        _preview.Preset = _editor.ToPreset(preset.Name, preset.Favorite);
+        _preview.Preset = _editor.ToPreset(entry.Name, entry.Favorite);
         UpdateButtons();
     }
 
@@ -218,88 +250,84 @@ public sealed class PresetsWindow : DialogBase
     {
         bool enabled = _loaded is not null;
         _favorite.IsEnabled = enabled;
-        _rename.IsEnabled = enabled;
-        _delete.IsEnabled = enabled;
-        _save.IsEnabled = enabled && _dirty;
+        _rename.IsEnabled = IsPersonal(_loaded);
+        _delete.IsEnabled = IsPersonal(_loaded);
+        _delete.Content = _loaded?.IsBuiltIn == true ? UiStrings.Assets_Disable : UiStrings.GradientPreset_Delete;
+        _save.Content = _loaded is null || IsPersonal(_loaded) ? UiStrings.GradientPreset_SaveChanges : UiStrings.Assets_SaveAsPersonal;
         _favorite.Content = Ui.IconLabel(VectorIcon.Star, _loaded?.Favorite == true
             ? UiStrings.GradientPreset_RemoveFavorite : UiStrings.GradientPreset_AddFavorite);
     }
 
-    private int IndexOf(GradientPreset preset) => _presets.FindIndex(p => ReferenceEquals(p, preset));
-
-    /// <summary>Saves the catalog with <paramref name="change"/> applied; the in-memory list changes only on success.</summary>
-    private bool Commit(Action<List<GradientPreset>> change)
+    /// <summary>
+    /// Saves the editor's values: a personal gradient in place, a package gradient as a new personal copy (asks for its name; an
+    /// existing personal gradient of that name is overwritten after asking). Returns the saved entry, or null when cancelled or failed.
+    /// </summary>
+    private AssetEntry? SaveEdits(AssetEntry entry)
     {
-        var next = _presets.ToList();
-        change(next);
-        if (!GradientPresetUi.Save(this, next)) return false;
-        _presets = next;
-        return true;
+        if (IsPersonal(entry)) return GradientPresetUi.Save(this, entry.Id, _editor.ToPreset(entry.Name, entry.Favorite));
+        var personal = GradientPresetUi.Personal;
+        string? name = InputDialog.Ask(this, UiStrings.Assets_SaveAsPersonal, UiStrings.GradientPreset_NamePrompt, entry.Name,
+            personal.Select(p => p.Name))?.Trim();
+        if (string.IsNullOrEmpty(name)) return null;
+        var existing = personal.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (existing is not null && Ui.Ask(this, Format(UiStrings.GradientPreset_OverwriteQuestion, name), UiStrings.Assets_SaveAsPersonal,
+                MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return null;
+        return GradientPresetUi.Save(this, existing?.Id, _editor.ToPreset(name, existing?.Favorite == true));
     }
 
-    /// <summary>Unsaved edits of the previously shown preset: save them on Yes, drop them on No (list order is unchanged).</summary>
+    /// <summary>Unsaved edits of the previously shown entry: save them on Yes, drop them on No.</summary>
     private void AskSaveChanges()
     {
-        if (!_dirty || _loaded is not { } preset) return;
+        if (!_dirty || _loaded is not { } entry) return;
         _dirty = false;
-        if (Ui.Ask(this, Format(UiStrings.GradientPreset_SaveChangesQuestion, preset.Name), UiStrings.GradientPreset_SaveChanges,
+        if (Ui.Ask(this, Format(UiStrings.GradientPreset_SaveChangesQuestion, entry.Name), UiStrings.GradientPreset_SaveChanges,
                 MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
-        int index = IndexOf(preset);
-        if (index < 0) return;
-        var updated = _editor.ToPreset(preset.Name, preset.Favorite);
-        if (!Commit(next => next[index] = updated)) return;
-        foreach (var item in _list.Items.OfType<ListBoxItem>())
-        {
-            if (!ReferenceEquals(item.Tag, preset)) continue;
-            item.Tag = updated;
-            item.Content = Row(updated);
-        }
+        SaveEdits(entry);
     }
 
     private void SaveChanges()
     {
-        if (_loaded is not { } preset) return;
-        int index = IndexOf(preset);
-        if (index < 0) return;
-        var updated = _editor.ToPreset(preset.Name, preset.Favorite);
-        if (!Commit(next => next[index] = updated)) return;
+        if (_loaded is not { } entry || SaveEdits(entry) is not { } saved) return;
         _dirty = false;
-        Refresh(updated.Name);
+        Refresh(saved.Id);
     }
 
     private void ToggleFavorite()
     {
-        if (_loaded is not { } preset) return;
-        int index = IndexOf(preset);
-        if (index < 0 || !Commit(next => next[index] = preset with { Favorite = !preset.Favorite })) return;
-        Refresh(preset.Name, keepEdits: true);
+        if (_loaded is not { } entry || !GradientPresetUi.SetFavorite(this, entry.Id, !entry.Favorite)) return;
+        Refresh(entry.Id, keepEdits: true);
     }
 
     private void Rename()
     {
-        if (_loaded is not { } preset) return;
-        int index = IndexOf(preset);
-        if (index < 0) return;
+        if (_loaded is not { } entry || !IsPersonal(entry) || entry.Gradient is not { } gradient) return;
+        var others = GradientPresetUi.Personal.Where(p => p.Id != entry.Id).ToList();
         string? name = InputDialog.Ask(this, UiStrings.GradientPreset_RenameTitle,
-            UiStrings.GradientPreset_NamePrompt, preset.Name, _presets.Select(p => p.Name))?.Trim();
-        if (string.IsNullOrEmpty(name) || name == preset.Name) return;
-        if (_presets.Where((_, i) => i != index).Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+            UiStrings.GradientPreset_NamePrompt, entry.Name, others.Select(p => p.Name))?.Trim();
+        if (string.IsNullOrEmpty(name) || name == entry.Name) return;
+        if (others.Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
         {
             Ui.Warn(this, Format(UiStrings.GradientPreset_DuplicateName, name), UiStrings.GradientPreset_RenameTitle);
             return;
         }
-        if (!Commit(next => next[index] = preset with { Name = name })) return;
-        Refresh(name, keepEdits: true);
+        if (GradientPresetUi.Save(this, entry.Id, gradient with { Name = name }) is null) return;
+        Refresh(entry.Id, keepEdits: true);
     }
 
     private void Delete()
     {
-        if (_loaded is not { } preset) return;
-        int index = IndexOf(preset);
-        if (index < 0 || Ui.Ask(this, Format(UiStrings.GradientPreset_DeleteQuestion, preset.Name), UiStrings.GradientPreset_Delete,
-                MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
+        if (_loaded is not { } entry || !IsPersonal(entry)) return;
+        if (entry.IsBuiltIn)
+        {
+            if (!AppAssets.Try(this, () => AppAssets.Store.SetPersonalEnabled(entry.Id, false), UiStrings.GradientPreset_SaveError)) return;
+        }
+        else
+        {
+            if (Ui.Ask(this, Format(UiStrings.GradientPreset_DeleteQuestion, entry.Name), UiStrings.GradientPreset_Delete,
+                    MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
+            if (!GradientPresetUi.Remove(this, entry.Id)) return;
+        }
         int row = _list.SelectedIndex;
-        if (!Commit(next => next.RemoveAt(index))) return;
         _dirty = false;
         Refresh(null, row);
     }

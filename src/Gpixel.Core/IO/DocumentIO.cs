@@ -75,10 +75,14 @@ public static class DocumentIO
     /// </summary>
     /// <param name="pngPath">저장 경로. null이면 <see cref="Document.Path"/>.</param>
     public static void Save(Document doc, string? pngPath, bool writeMeta, ExportImageFormat format = ExportImageFormat.Png, int jpegQuality = 90)
+        => Save(doc, pngPath, writeMeta, format, jpegQuality, null);
+
+    /// <param name="stage">이미지 쓰기 진행(단위: 픽셀).</param>
+    internal static void Save(Document doc, string? pngPath, bool writeMeta, ExportImageFormat format, int jpegQuality, WorkStage? stage)
     {
         var path = pngPath ?? doc.Path ?? throw new InvalidOperationException(Gpixel.Core.Localization.DomainStrings.Document_NoSavePath);
         path = Path.GetFullPath(path);
-        ImageWriter.Save(doc.Image, path, format, jpegQuality);
+        ImageWriter.Save(doc.Image, path, format, jpegQuality, stage);
         // 예전 버전이 쓴 사이드카는 이제 낡은 정보이고 열 때 메타보다 먼저 읽히므로 지운다.
         var sidecar = SidecarIO.GetPath(path);
         if (File.Exists(sidecar)) File.Delete(sidecar);

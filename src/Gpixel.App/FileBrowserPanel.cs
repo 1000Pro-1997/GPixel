@@ -1254,7 +1254,9 @@ public sealed class FileBrowserPanel : UserControl
         }
         try
         {
-            ProjectIO.SaveWithExport(project, target);
+            var job = ProjectIO.BeginSave(project, target);
+            WorkOverlay.Run(this, UiStrings.Busy_Saving, progress => job.Run(progress));
+            job.Finish();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidOperationException)
         {

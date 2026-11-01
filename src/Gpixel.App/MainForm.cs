@@ -149,6 +149,7 @@ public sealed partial class MainForm : Window, Ai.IAiHost
     {
         _args = args;
         _settings = settings;
+        ScriptTrustStore.Load(_settings);
         _history = new UndoHistoryKeeper(_settings);
         _history.Failed += m => Dispatcher.UIThread.Post(() => ShowMessage(MainStrings.FormatMessage_336(m: m)));
         _updater = new Updater(_settings, this, ShowMessage, ShowUpdateButton, ConfirmCloseAll, ExitForUpdate);
@@ -636,7 +637,6 @@ public sealed partial class MainForm : Window, Ai.IAiHost
             DocCmd("캔버스 전체 상하 뒤집기(모든 프레임)", MainStrings.Menu_Edit_Structural_125, () => _ctx.Structural(() => _ctx.Project!.FlipCanvasVertical())),
             DocCmd("이미지에서 팔레트 만들기", MainStrings.Menu_Edit_Command_127, _colors.PaletteFromImage),
             DocCmd("팔레트 색으로 변환…", MainStrings.Menu_Edit_Command_129, _colors.ConvertImageToActivePalette),
-            WithIcon(DocCmd("현재 레이어를 픽셀로 정리…", MainStrings.Menu_Edit_Pixelate, PixelateCurrentLayer), VectorIcon.Grid3x3),
             new Separator(),
             Cmd("환경 설정…", MainStrings.Menu_Edit_ShowPreferences_131, ShowPreferences, "Ctrl+,", KeyScope.Global, (Key.OemComma, Ctrl)));
         Bind("편집", "선택 내려놓기", MainStrings.ShortcutCategory_Edit, MainStrings.Shortcut_CommitSelection, KeyScope.Canvas, () =>
@@ -744,7 +744,8 @@ public sealed partial class MainForm : Window, Ai.IAiHost
             Cmd("브러시 작게", MainStrings.Menu_Tools_BrushSize_218, () => _ctx.BrushSize--, "[", KeyScope.NotInText, (Key.OemOpenBrackets, NoMods)),
             Cmd("기본색 ↔ 보조색", MainStrings.Menu_Tools_SwapColors_220, _ctx.SwapColors, "X", KeyScope.NotInText, (Key.X, NoMods)));
         // 프리셋 종류가 늘어도 한 창의 탭으로 모은다.
-        AddItems(tools, new Separator(), Cmd("프리셋", UiStrings.Presets_Menu, () => PresetsWindow.Open(this)));
+        AddItems(tools, new Separator(), Cmd("프리셋", UiStrings.Presets_Menu, () => PresetsWindow.Open(this)),
+            WithIcon(Cmd("에셋 관리자", UiStrings.Assets_Menu, () => AssetManagerWindow.Open(this)), VectorIcon.Package));
 
 
         // AI
@@ -756,7 +757,8 @@ public sealed partial class MainForm : Window, Ai.IAiHost
             WithIcon(Cmd("AI 상태 열기…", UiStrings.AiStatus_OpenMenu, () => ShowAiStatus(this)), VectorIcon.Info),
             refs,
             new Separator(),
-            WithIcon(Cmd("AI 그림 픽셀로 정리…", MainStrings.Menu_Ai_Pixelate, () => ShowPixelate(null, 1)), VectorIcon.Grid3x3));
+            WithIcon(Cmd("AI 그림 픽셀로 정리…", MainStrings.Menu_Ai_Pixelate, () => ShowPixelate(null, 1)), VectorIcon.Grid3x3),
+            WithIcon(DocCmd("현재 레이어를 픽셀로 정리…", MainStrings.Menu_Ai_PixelateLayer, PixelateCurrentLayer), VectorIcon.Grid3x3));
 
         // 도움말
         var help = TopMenu("도움말(_H)", MainStrings.Menu_Help);
@@ -1025,7 +1027,8 @@ public sealed partial class MainForm : Window, Ai.IAiHost
         _browser.PixelateRequested += (_, path) => PixelateFile(path);
         _browser.FileRenamed += (_, r) => OnFileRenamed(r.OldPath, r.NewPath);
         _browser.FileDeleted += (_, path) => OnFileDeleted(path);
-        _browser.FilesChanged += (_, paths) => OnFilesChanged(paths);
+        // 저장·열기 중(자동 저장 포함)에 온 파일 감시 알림은 끝난 뒤(문서의 디스크 시각을 갱신한 뒤)에 본다 — 자기 저장을 "밖에서 바뀜"으로 묻지 않게.
+        _browser.FilesChanged += (_, paths) => OnFilesChangedWhenIdle(paths);
 
         _start.FolderChosen += (_, folder) => SetRootFolder(folder);
         _start.FileChosen += (_, file) => OpenFile(file);
@@ -1168,6 +1171,8 @@ public sealed partial class MainForm : Window, Ai.IAiHost
         if (s.ChatOpen) Dispatcher.UIThread.Post(ToggleChat);
         _canvas.Focus();
         _updater.OnStartup();
+        // 에셋 저장소를 열어 첫 실행의 예전 프리셋 migration을 끝내고, 손상된 상태 파일이 있으면 한 번 알린다.
+        Dispatcher.UIThread.Post(() => AppAssets.ShowProblems(this), DispatcherPriority.Background);
     }
 
     /// <summary>설정의 그라데이션 정지점("위치:#색")을 읽는다. 없거나 2개보다 적게 읽히면 null(기본값 유지).</summary>
@@ -1285,6 +1290,24 @@ public sealed partial class MainForm : Window, Ai.IAiHost
     private void OnWindowClosing(object? sender, WindowClosingEventArgs e)
     {
         if (_closeConfirmed) return;
+        // 저장·열기 중에는 닫지 않고 끝난 뒤 다시 닫는다(저장 안 한 문서 확인도 그때).
+        if (WorkOverlay.IsActive)
+        {
+            e.Cancel = true;
+            WorkOverlay.CloseWhenIdle(this);
+            return;
+        }
+        // 자동 저장이 쓰는 중이면 끝나고 결과를 반영한 뒤 다시 닫는다(쓰다 만 내보내기 파일을 남기지 않게).
+        if (_autoSaving is { } saving)
+        {
+            e.Cancel = true;
+            saving.Task.ContinueWith(_ => Dispatcher.UIThread.Post(() =>
+            {
+                FinishAutoSave();
+                Close();
+            }), TaskScheduler.Default);
+            return;
+        }
         _ctx.CommitFloating();
         if (UnsavedCount == 0)
         {
@@ -1371,6 +1394,12 @@ public sealed partial class MainForm : Window, Ai.IAiHost
     /// <summary>창 전체 키 미리 받기(터널): 포커스된 컨트롤보다 먼저 단축키 표를 본다.</summary>
     private void OnPreviewKeyDown(object? sender, KeyEventArgs e)
     {
+        // 저장·열기 덮개가 떠 있는 동안은 단축키도 막는다(덮개가 키를 먹기 전에 이 처리기가 먼저 돈다).
+        if (WorkOverlay.IsActive)
+        {
+            e.Handled = true;
+            return;
+        }
         // Ctrl(⌘)을 누르는 동안의 임시 이동 도구는 단축키(⌘T·⌘V 등)를 누르는 순간 먼저 원래 도구로 되돌린다 —
         // 단축키가 시작한 변형·붙여넣기가 ⌘를 뗄 때의 도구 되돌리기에 적용(취소)되지 않게.
         _canvas.EndTempMoveForShortcut(e.Key);
@@ -1454,7 +1483,7 @@ public sealed partial class MainForm : Window, Ai.IAiHost
             return;
         }
         _stPos.Text = $"{p.X}, {p.Y}";
-        var c = _ctx.CompositeColorAt(p.X, p.Y);
+        var c = _ctx.CompositeColorAt(p.X, p.Y, exact: false);
         _stColor.Text = c.A == 0 ? MainStrings.Ui_246 : c.ToHex();
     }
 
@@ -2002,7 +2031,8 @@ public sealed partial class MainForm : Window, Ai.IAiHost
         message = "";
         try
         {
-            var analysis = ProjectImport.Analyze(full, new SpriteSettings { PixelsPerUnit = _settings.LastPpu, Mode = SpriteMode.Multiple });
+            var defaults = new SpriteSettings { PixelsPerUnit = _settings.LastPpu, Mode = SpriteMode.Multiple };
+            var analysis = WorkOverlay.Run(this, UiStrings.Busy_Opening, _ => ProjectImport.Analyze(full, defaults));
             ImportMode? mode = null;
             if (analysis.NeedsModeChoice)
             {
@@ -2015,7 +2045,10 @@ public sealed partial class MainForm : Window, Ai.IAiHost
                 }
                 else mode = ImportMode.Frames;
             }
-            return ProjectImport.Import(analysis, mode);
+            var result = WorkOverlay.Run(this, UiStrings.Busy_Opening, progress => ProjectImport.Import(analysis, mode, progress));
+            // 처음 보는 스크립트 효과는 실행할지 묻고, 실행할 것은 작업 스레드에서 실행기를 미리 띄운다
+            ScriptTrustStore.Opened(this, result.Project, interactive);
+            return result;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or ArgumentException or NotSupportedException
                                        or System.Text.Json.JsonException)
@@ -2131,20 +2164,78 @@ public sealed partial class MainForm : Window, Ai.IAiHost
     /// 자동 저장: 지금 문서를 Ctrl+S와 같이(내보내기 포함) 묻지 않고 저장한다. 디스크에 프로젝트 파일이 이미 있는 문서만 —
     /// 저장한 적 없는 새 프로젝트·아직 .gpixel이 없는 PNG 가져오기는 저장하지 않는다. 그리는 중·끄는 중·떠 있는 선택·변형·묶음 기록(값 끌기, AI 차례) 중이면
     /// 다시 기다린다. 결과·실패는 상태 표시줄에만 알린다.
+    /// 지금 상태의 사본을 작업 스레드에서 쓰므로 저장하는 동안에도 편집을 막지 않는다(<see cref="StartAutoSave"/>). 셀이 아주 크면(사본 메모리가
+    /// <see cref="MaxAutoSaveSnapshotBytes"/>를 넘음) 사본 없이 덮개를 띄우고 저장한다.
     /// </summary>
     private void AutoSaveTick()
     {
         _autoSave.Stop();
         if (!_settings.AutoSave || _ctx.Project is not { IsDirty: true, Path: { } path } p || !File.Exists(path)) return;
-        if (p.IsStrokeActive || p.History.InGroup || _canvas.IsDragging || _ctx.Selection.IsFloating || _ctx.IsTransforming || _ctx.IsCanvasResizing)
+        if (WorkOverlay.IsActive || _autoSaving is not null || p.IsStrokeActive || p.History.InGroup || _canvas.IsDragging
+            || _ctx.Selection.IsFloating || _ctx.IsTransforming || _ctx.IsCanvasResizing)
         {
             _autoSave.Start();
             return;
         }
-        var name = Path.GetFileName(path);
-        ShowMessage(SaveTo(path, interactive: false, out var message)
-            ? MainStrings.FormatMessage_365(name: name, unsavedSuffix: UnsavedSuffix)
-            : MainStrings.FormatMessage_366(name: name) + string.Join(" ", message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)));
+        if (ProjectIO.CelBytes(p) <= MaxAutoSaveSnapshotBytes)
+        {
+            StartAutoSave(p, path);
+            return;
+        }
+        ShowMessage(SaveTo(path, interactive: false, out var message) ? AutoSavedMessage(path) : AutoSaveFailedMessage(path, message));
+    }
+
+    /// <summary>자동 저장이 사본을 만들어 작업 스레드에서 쓰는 셀 크기 한도(넘으면 사본 대신 덮개를 띄우고 저장 — 사본이 이만큼 메모리를 더 씀).</summary>
+    private const long MaxAutoSaveSnapshotBytes = 768L << 20;
+
+    /// <summary>작업 스레드에서 쓰는 중인 자동 저장(원래 프로젝트의 사본을 씀). 없으면 null.</summary>
+    private (SpriteProject Project, string Path, ProjectSaveJob Job, DateTime StampBefore, Task Task)? _autoSaving;
+
+    /// <summary>자동 저장 결과를 반영하면 끝나는 작업(그동안 온 파일 감시 알림은 이것을 기다림 — 자기 저장을 "밖에서 바뀜"으로 묻지 않게).</summary>
+    private TaskCompletionSource? _autoSaved;
+
+    private string AutoSavedMessage(string path) => MainStrings.FormatMessage_365(name: Path.GetFileName(path), unsavedSuffix: UnsavedSuffix);
+
+    private static string AutoSaveFailedMessage(string path, string message)
+        => MainStrings.FormatMessage_366(name: Path.GetFileName(path)) + string.Join(" ", message.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    /// <summary>지금 상태의 사본을 만들고(UI 스레드, 셀 복사) 작업 스레드에서 쓴다. 끝나면 UI 스레드에서 결과를 반영한다(<see cref="FinishAutoSave"/>).</summary>
+    private void StartAutoSave(SpriteProject p, string path)
+    {
+        var stampBefore = SafeStamp(path);
+        ProjectSaveJob job;
+        try
+        {
+            job = ProjectIO.BeginSave(p, path, snapshot: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
+                                       or InvalidOperationException or System.Security.SecurityException)
+        {
+            SaveFailed(p, path, stampBefore, ex, interactive: false, out var message);
+            ShowMessage(AutoSaveFailedMessage(path, message));
+            return;
+        }
+        var task = Task.Run(() => job.Run());
+        _autoSaving = (p, path, job, stampBefore, task);
+        _autoSaved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        task.ContinueWith(_ => Dispatcher.UIThread.Post(FinishAutoSave), TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// 쓰는 중인 자동 저장의 결과를 반영한다. 아직 쓰는 중이면(다른 저장·내보내기·되돌리기·닫기 전) 덮개를 띄우고 끝날 때까지 기다린다.
+    /// 자동 저장이 없으면 아무것도 하지 않는다.
+    /// </summary>
+    private void FinishAutoSave()
+    {
+        if (_autoSaving is not { } saving) return;
+        _autoSaving = null; // 기다리는 동안 끝나 올라온 반영 호출이 두 번 반영하지 않게
+        if (!saving.Task.IsCompleted) WorkOverlay.Run(this, UiStrings.Busy_Saving, _ => saving.Task.Wait());
+        ShowMessage(CompleteSave(saving.Project, saving.Path, saving.Job, saving.StampBefore, interactive: false, out var message)
+            ? AutoSavedMessage(saving.Path)
+            : AutoSaveFailedMessage(saving.Path, message));
+        var done = _autoSaved;
+        _autoSaved = null;
+        done?.TrySetResult();
     }
 
     /// <summary>다른 이름으로 저장(<paramref name="p"/>가 없으면 지금 문서). 저장했으면 true.</summary>
@@ -2172,39 +2263,43 @@ public sealed partial class MainForm : Window, Ai.IAiHost
     /// </summary>
     private bool SaveDocument(SpriteProject p, string path, bool interactive, out string message)
     {
-        bool current = ReferenceEquals(p, _ctx.Project);
-        var doc = OpenDocs.Find(d => ReferenceEquals(d.Project, p));
-        if (current) _ctx.CommitFloating();
-        ProjectSaveResult result;
+        FinishAutoSave(); // 자동 저장이 같은 파일을 쓰는 중이면 끝난 뒤에
+        if (ReferenceEquals(p, _ctx.Project)) _ctx.CommitFloating();
         var stampBefore = SafeStamp(path);
+        ProjectSaveJob job;
         try
         {
-            result = ProjectIO.SaveWithExport(p, path);
+            job = ProjectIO.BeginSave(p, path);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
                                        or InvalidOperationException or System.Security.SecurityException)
         {
-            // .gpixel은 저장했고 내보내기(PNG·사이드카·메타)만 실패했으면: 파일 감시가 자기 저장을 "밖에서 바뀜"으로 보지 않게 하고 그대로 알린다.
-            bool projectSaved = !p.IsDirty && SafeStamp(path) is var stamp && stamp != default && stamp != stampBefore;
-            if (projectSaved)
-            {
-                _history.Saved(p);
-                if (doc is not null) doc.DiskStamp = SafeStamp(p.Path!);
-                if (current)
-                {
-                    UpdateTitle();
-                    UpdateStatus();
-                }
-                _browser.RefreshFile(p.Path!);
-            }
-            message = projectSaved
-                ? MainStrings.FormatMessage_367(path: path, message: ex.Message)
-                : MainStrings.FormatMessage_368(path: path, message: ex.Message);
-            if (interactive) Ui.Error(this, message, MainStrings.Message_298);
-            return false;
+            return SaveFailed(p, path, stampBefore, ex, interactive, out message);
+        }
+        WorkOverlay.Run(this, UiStrings.Busy_Saving, progress => job.Run(progress));
+        return CompleteSave(p, path, job, stampBefore, interactive, out message);
+    }
+
+    /// <summary>
+    /// 쓴 저장의 결과를 프로젝트·화면에 반영한다(<see cref="ProjectSaveJob.Finish"/>, 최근 파일, 실행취소 기록, 파일 목록, 제목).
+    /// 쓰는 동안 프로젝트가 바뀌었으면(자동 저장 중 편집) 수정됨이 남고 실행취소 기록은 쓰지 않는다(기록이 파일과 맞지 않으므로).
+    /// </summary>
+    private bool CompleteSave(SpriteProject p, string path, ProjectSaveJob job, DateTime stampBefore, bool interactive, out string message)
+    {
+        bool current = ReferenceEquals(p, _ctx.Project);
+        var doc = OpenDocs.Find(d => ReferenceEquals(d.Project, p));
+        ProjectSaveResult result;
+        try
+        {
+            result = job.Finish();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException
+                                       or InvalidOperationException or System.Security.SecurityException)
+        {
+            return SaveFailed(p, path, stampBefore, ex, interactive, out message);
         }
         AppSettings.PushRecent(_settings.RecentFiles, result.ProjectPath);
-        _history.Saved(p);
+        if (!p.IsDirty) _history.Saved(p);
         message = MainStrings.FormatMessage_369(projectPath: Path.GetFileName(result.ProjectPath)) + ExportSummary(result.Export) + TrashStale(result.Export);
         _browser.RefreshFile(result.ProjectPath);
         if (doc is not null)
@@ -2225,6 +2320,30 @@ public sealed partial class MainForm : Window, Ai.IAiHost
         SyncUnsaved();
         ShowMessage(message + UnsavedSuffix);
         return true;
+    }
+
+    /// <summary>저장 실패 알림. .gpixel은 저장했고 내보내기(PNG·사이드카·메타)만 실패했으면 파일 감시가 자기 저장을 "밖에서 바뀜"으로 보지 않게 표시를 맞춘다.</summary>
+    private bool SaveFailed(SpriteProject p, string path, DateTime stampBefore, Exception ex, bool interactive, out string message)
+    {
+        bool current = ReferenceEquals(p, _ctx.Project);
+        var doc = OpenDocs.Find(d => ReferenceEquals(d.Project, p));
+        bool projectSaved = SafeStamp(path) is var stamp && stamp != default && stamp != stampBefore && string.Equals(p.Path, Path.GetFullPath(path), StringComparison.OrdinalIgnoreCase);
+        if (projectSaved)
+        {
+            if (!p.IsDirty) _history.Saved(p);
+            if (doc is not null) doc.DiskStamp = SafeStamp(p.Path!);
+            if (current)
+            {
+                UpdateTitle();
+                UpdateStatus();
+            }
+            _browser.RefreshFile(p.Path!);
+        }
+        message = projectSaved
+            ? MainStrings.FormatMessage_367(path: path, message: ex.Message)
+            : MainStrings.FormatMessage_368(path: path, message: ex.Message);
+        if (interactive) Ui.Error(this, message, MainStrings.Message_298);
+        return false;
     }
 
     /// <summary>저장/내보내기 결과 요약: 프레임 시트·부위 아틀라스·Sprite Library 각각(파일이 여러 개면 파일 수와 칸·라벨 합계).</summary>
@@ -2287,11 +2406,13 @@ public sealed partial class MainForm : Window, Ai.IAiHost
 
     private void ExportNow()
     {
+        FinishAutoSave(); // 자동 저장이 같은 내보내기 파일을 쓰는 중이면 끝난 뒤에
         var p = _ctx.Project!;
         if (p.Path is null && !SaveAs()) return;
         try
         {
-            var e = ProjectExport.Export(p);
+            var plan = ProjectExport.BeginExport(p);
+            var e = WorkOverlay.Run(this, UiStrings.Busy_Exporting, progress => ProjectExport.Write(p, plan, progress));
             ShowMessage(MainStrings.Message_304 + ExportSummary(e).TrimStart(' ', '→') + TrashStale(e));
             foreach (var r in e.All) _browser.RefreshFile(r.ImagePath);
         }
@@ -2351,6 +2472,18 @@ public sealed partial class MainForm : Window, Ai.IAiHost
             ShowMessage(MainStrings.FormatMessage_376(value: Path.GetFileName(path)));
         }
         UpdateSaveButtons();
+    }
+
+    /// <summary>저장·열기 덮개나 자동 저장이 끝난 뒤(문서의 디스크 시각을 갱신한 뒤) <see cref="OnFilesChanged"/>를 부른다. 둘 다 없으면 바로.</summary>
+    private void OnFilesChangedWhenIdle(IReadOnlyCollection<string> paths)
+    {
+        if (!WorkOverlay.IsActive && _autoSaved is null)
+        {
+            OnFilesChanged(paths);
+            return;
+        }
+        Task.WhenAll(WorkOverlay.WhenIdle(), _autoSaved?.Task ?? Task.CompletedTask)
+            .ContinueWith(_ => OnFilesChangedWhenIdle(paths), TaskScheduler.FromCurrentSynchronizationContext());
     }
 
     /// <summary>

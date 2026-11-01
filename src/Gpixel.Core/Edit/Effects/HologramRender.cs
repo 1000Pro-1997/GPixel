@@ -10,18 +10,24 @@ namespace Gpixel.Core.Edit;
 /// </summary>
 internal static class HologramRender
 {
+    /// <summary>글리치 조각이 좌우로 최대 밀림만큼, 테두리 빛이면 사방으로 1px 더(밀린 조각 둘레까지) 넓힌다.</summary>
+    public static EffectPadding Padding(HologramEffect g, int width, int height)
+    {
+        int edge = g.EdgeGlow ? 1 : 0;
+        return new EffectPadding(g.GlitchReach + edge, edge, g.GlitchReach + edge, edge);
+    }
+
     public static void Apply(PixelImage image, HologramEffect e, Rectangle source)
     {
         var bounds = image.GetOpaqueBounds();
         if (bounds.IsEmpty) return;
-        int w = image.Width, step = e.FrameStep;
+        int w = image.Width, h = image.Height, step = e.FrameStep;
         var px = image.Pixels;
         var colors = EffectGradientSampler.For(e, nameof(e.Color), bounds, e.Color, source.X, source.Y);
 
         var slices = e.GlitchSlices(step, bounds.Height);
         if (slices.Count > 0) Glitch(px, w, bounds, slices);
 
-        var shape = LayerEffects.Mask(px);
         double u = e.Progress, flicker = e.FlickerAt(step);
         int tint = (e.TintStrength * 255 + 50) / 100, band = e.Band ? (e.BandStrength * 255 + 50) / 100 : 0, scan = e.ScanStrength;
         var solidBandLight = LayerEffects.Mix(e.Color, Color32.White, 128);
@@ -29,67 +35,91 @@ internal static class HologramRender
         // 띠 위 끝: 진행 0 = 보이는 그림 바로 위(두께만큼), 1 = 바로 아래 — 양 끝 프레임엔 닿는 픽셀이 없다
         int bandTop = (int)Math.Round(bounds.Top - e.BandSize + (bounds.Bottom - bounds.Top + e.BandSize) * u, MidpointRounding.AwayFromZero);
         double opacity = e.Opacity / 100.0 * flicker;
-
-        // 색·띠·주사선(알파는 그대로) — RGB 분리가 이웃 결과를 보므로 먼저 모두 만든다
-        var rgb = new Color32[px.Length];
-        var keep = new double[px.Length];
-        for (int y = bounds.Top; y < bounds.Bottom; y++)
-        {
-            bool inBand = band > 0 && y >= bandTop && y < bandTop + e.BandSize;
-            bool scanRow = !inBand && scan > 0 && ((y - source.Y - offset) % gap + gap) % gap == 0;
-            double rowKeep = scanRow && e.ScanStyle == HologramScanStyle.Fade ? 1 - scan / 100.0 : 1;
-            for (int x = 0; x < w; x++)
-            {
-                int i = y * w + x;
-                if (!shape[i]) continue;
-                var sampled = colors.Sample(x, y);
-                int tintAmount = colors.HasGradient ? (tint * sampled.A + 127) / 255 : tint;
-                var c = LayerEffects.Mix(px[i], Tint(px[i], sampled), tintAmount);
-                if (inBand)
-                {
-                    var bandLight = colors.HasGradient ? LayerEffects.Mix(sampled, Color32.White, 128) : solidBandLight;
-                    int bandAmount = colors.HasGradient ? (band * sampled.A + 127) / 255 : band;
-                    c = LayerEffects.Screen(c, bandLight, bandAmount);
-                }
-                else if (scanRow && e.ScanStyle == HologramScanStyle.Darken)
-                    c = Darken(c, scan);
-                rgb[i] = c;
-                keep[i] = opacity * rowKeep;
-            }
-        }
-
         bool split = e.RgbSplit && slices.Count > 0;
-        for (int y = bounds.Top; y < bounds.Bottom; y++)
-            for (int x = 0; x < w; x++)
-            {
-                int i = y * w + x;
-                if (!shape[i]) continue;
-                var c = rgb[i];
-                if (split)
-                {
-                    byte r = x > 0 && shape[i - 1] ? rgb[i - 1].R : (byte)0, b = x + 1 < w && shape[i + 1] ? rgb[i + 1].B : (byte)0;
-                    c = new Color32(r, c.G, b, c.A);
-                }
-                px[i] = Fade(c, keep[i], e.Dither, x - source.X, y - source.Y);
-            }
 
-        if (e.EdgeGlow && e.EdgeOpacity > 0) Glow(image, shape, e, opacity * e.EdgeOpacity / 100.0, source, colors);
+        var shape = EffectBuffers.Rent<bool>(w * h);
+        var rgb = EffectBuffers.Rent<Color32>(w * h);
+        try
+        {
+            LayerEffects.Mask(px, shape, w, h);
+            // 줄마다: 색·띠·주사선(알파는 그대로)을 줄 전체에 먼저 만들고(RGB 분리가 같은 줄 이웃의 결과를 봄) 알파를 줄인다.
+            // 모양은 글리치가 옆으로만 미므로 보이는 그림 범위의 줄 안에 있다.
+            EffectParallel.For(bounds.Top, bounds.Bottom, w, y =>
+            {
+                bool inBand = band > 0 && y >= bandTop && y < bandTop + e.BandSize;
+                bool scanRow = !inBand && scan > 0 && ((y - source.Y - offset) % gap + gap) % gap == 0;
+                double keep = opacity * (scanRow && e.ScanStyle == HologramScanStyle.Fade ? 1 - scan / 100.0 : 1);
+                int row = y * w;
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (!shape[i]) continue;
+                    var sampled = colors.Sample(x, y);
+                    int tintAmount = colors.HasGradient ? (tint * sampled.A + 127) / 255 : tint;
+                    var c = LayerEffects.Mix(px[i], Tint(px[i], sampled), tintAmount);
+                    if (inBand)
+                    {
+                        var bandLight = colors.HasGradient ? LayerEffects.Mix(sampled, Color32.White, 128) : solidBandLight;
+                        int bandAmount = colors.HasGradient ? (band * sampled.A + 127) / 255 : band;
+                        c = LayerEffects.Screen(c, bandLight, bandAmount);
+                    }
+                    else if (scanRow && e.ScanStyle == HologramScanStyle.Darken)
+                        c = Darken(c, scan);
+                    rgb[i] = c;
+                }
+                for (int x = 0; x < w; x++)
+                {
+                    int i = row + x;
+                    if (!shape[i]) continue;
+                    var c = rgb[i];
+                    if (split)
+                    {
+                        byte r = x > 0 && shape[i - 1] ? rgb[i - 1].R : (byte)0, b = x + 1 < w && shape[i + 1] ? rgb[i + 1].B : (byte)0;
+                        c = new Color32(r, c.G, b, c.A);
+                    }
+                    px[i] = Fade(c, keep, e.Dither, x - source.X, y - source.Y);
+                }
+            });
+
+            if (e.EdgeGlow && e.EdgeOpacity > 0) Glow(image, shape, e, opacity * e.EdgeOpacity / 100.0, source, colors);
+        }
+        finally
+        {
+            EffectBuffers.Return(shape);
+            EffectBuffers.Return(rgb);
+        }
     }
 
     /// <summary>글리치: 조각 줄들을 좌우로 민다(원래 그림에서 읽음 — 겹치면 뒤 조각이 이김, 밀려 나간 자리는 투명).</summary>
     private static void Glitch(Color32[] px, int w, Rectangle bounds, IReadOnlyList<(int Top, int Height, int Shift)> slices)
     {
-        var src = (Color32[])px.Clone();
-        foreach (var (top, height, shift) in slices)
-            for (int y = bounds.Top + top; y < Math.Min(bounds.Bottom, bounds.Top + top + height); y++)
-            {
-                int row = y * w;
-                for (int x = 0; x < w; x++)
+        // 조각이 닿는 줄만 원래 그림을 따로 둔다
+        int first = int.MaxValue, last = int.MinValue;
+        foreach (var (top, height, _) in slices)
+        {
+            first = Math.Min(first, bounds.Top + top);
+            last = Math.Max(last, Math.Min(bounds.Bottom, bounds.Top + top + height));
+        }
+        if (last <= first) return;
+        var src = EffectBuffers.Rent<Color32>((last - first) * w);
+        try
+        {
+            Array.Copy(px, first * w, src, 0, (last - first) * w);
+            foreach (var (top, height, shift) in slices)
+                for (int y = bounds.Top + top; y < Math.Min(bounds.Bottom, bounds.Top + top + height); y++)
                 {
-                    int sx = x - shift;
-                    px[row + x] = (uint)sx < (uint)w ? src[row + sx] : Color32.Transparent;
+                    int row = y * w, from = (y - first) * w;
+                    for (int x = 0; x < w; x++)
+                    {
+                        int sx = x - shift;
+                        px[row + x] = (uint)sx < (uint)w ? src[from + sx] : Color32.Transparent;
+                    }
                 }
-            }
+        }
+        finally
+        {
+            EffectBuffers.Return(src);
+        }
     }
 
     /// <summary>
@@ -127,7 +157,9 @@ internal static class HologramRender
         var px = image.Pixels;
         var solid = e.Color.WithAlpha(255);
         bool In(int x, int y) => (uint)x < (uint)w && (uint)y < (uint)h && shape[y * w + x];
-        for (int y = 0; y < h; y++)
+        // 모양(읽기만)의 밖 칸만 쓰므로 줄끼리 겹치지 않는다
+        EffectParallel.For(0, h, w, y =>
+        {
             for (int x = 0; x < w; x++)
             {
                 int i = y * w + x;
@@ -137,5 +169,6 @@ internal static class HologramRender
                     keep * (colors.HasGradient ? sampled.A / 255.0 : 1), e.Dither, x - source.X, y - source.Y);
                 if (c.A != 0) px[i] = c; // 모양 밖은 투명이라 그대로 놓는다
             }
+        });
     }
 }

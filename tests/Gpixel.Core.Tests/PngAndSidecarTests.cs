@@ -21,6 +21,17 @@ public class PngAndSidecarTests
     }
 
     [Fact]
+    public void Png_RoundTrip_LargeImage_CompressedInParallelChunks_IsLossless()
+    {
+        // 거른 데이터가 8MiB를 넘어 줄 묶음마다 나눠 압축하는 크기(묶음 경계가 줄 중간이 아닌 곳, 마지막 묶음은 짧음).
+        var img = TestUtil.RandomImage(1500, 1501, seed: 3);
+        using var ms = new MemoryStream();
+        PngIO.Save(img, ms);
+        ms.Position = 0;
+        Assert.True(img.ContentEquals(PngIO.Load(ms)));
+    }
+
+    [Fact]
     public void Png_SaveToFile_ThenReadSizeAndLoad()
     {
         using var dir = new TempDir();

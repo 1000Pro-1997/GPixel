@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Gpixel.Core.AiDraw;
 using Gpixel.Core.Model;
 using Gpixel.Core.Pixelate;
@@ -12,13 +13,17 @@ public class AiDrawTests
     // ───────────── 설정 ─────────────
 
     [Fact]
-    public void Settings_claude_always_draws_directly_and_codex_follows_mode()
+    public void Settings_choose_generate_direct_or_auto_checked_direct_across_providers()
     {
         var s = new AiDrawSettings();
         Assert.Equal(AiDrawMode.Generate, s.EffectiveMode("codex"));
-        Assert.Equal(AiDrawMode.Direct, s.EffectiveMode("claude"));
+        Assert.Equal(AiDrawMode.DirectAutoCheck, s.EffectiveMode("claude"));
         s.Mode = AiDrawMode.Direct;
         Assert.Equal(AiDrawMode.Direct, s.EffectiveMode("codex"));
+        Assert.Equal(AiDrawMode.Direct, s.EffectiveMode("claude"));
+        s.Mode = AiDrawMode.DirectAutoCheck;
+        Assert.Equal(AiDrawMode.DirectAutoCheck, s.EffectiveMode("codex"));
+        Assert.Equal(AiDrawMode.DirectAutoCheck, JsonSerializer.Deserialize<AiDrawSettings>(JsonSerializer.Serialize(s))!.EffectiveMode("claude"));
     }
 
     [Fact]

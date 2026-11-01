@@ -1056,7 +1056,7 @@
     <comment>names = 풀지 못한 파일 이름들(쉼표로 이음).</comment>
   </data>
   <data name="Menu_Ai_Pixelate" xml:space="preserve"><value>AI 그림 픽셀로 정리…</value></data>
-  <data name="Menu_Edit_Pixelate" xml:space="preserve"><value>현재 레이어를 픽셀로 정리…</value></data>
+  <data name="Menu_Ai_PixelateLayer" xml:space="preserve"><value>현재 레이어를 픽셀로 정리…</value></data>
   <data name="Pixelate_UndoLabel" xml:space="preserve"><value>AI 그림 픽셀로 정리</value></data>
   <data name="Pixelate_EmptyLayer" xml:space="preserve"><value>현재 레이어에 정리할 그림이 없습니다.</value></data>
   <data name="Pixelate_AddedLayer" xml:space="preserve"><value>‘{name}’ 레이어로 넣었습니다({frames}프레임, {width}×{height})</value></data>

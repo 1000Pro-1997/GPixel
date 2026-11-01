@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi ColorAdjustUi => EffectUi.For<ColorAdjustEffect>(ColorAdjustDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_CA9E953421, UiStrings.S_LayerEffectsDialog_KindTable_02A04E0B04,
+        Avalonia.Media.Color.FromRgb(160, 160, 160), (dialog, e, set) => dialog.ColorAdjustPanel(e, set),
+        c => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_62017EE627,AdjustSummary(c)));
+
     private static readonly string[] AdjustModes = [UiStrings.S_ColorAdjustPanel_AdjustModes_2C243D40ED, UiStrings.S_ColorAdjustPanel_AdjustModes_7D62C1B761, UiStrings.S_ColorAdjustPanel_AdjustModes_C19765AF80, UiStrings.S_ColorAdjustPanel_AdjustModes_0FF6A836A6, UiStrings.S_ColorAdjustPanel_AdjustModes_66B88ADD3C];
 
     private static string AdjustSummary(ColorAdjustEffect c) => AdjustModes[(int)c.Mode] + c.Mode switch

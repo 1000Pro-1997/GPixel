@@ -28,21 +28,51 @@ public sealed partial class LayerEffectsDialog
         return bounds;
     }
 
-    /// <summary>지금 효과·프레임 늘리기와 선택한 방식으로 확인 때 적용할 캔버스 확대.</summary>
+    /// <summary>지금 효과·프레임 늘리기와 선택한 방식으로 확인 때 적용할 캔버스 확대(<see cref="WaitOutputBounds"/>).</summary>
     private EffectCanvasExpansion CanvasExpansion(IReadOnlyList<LayerEffect> all)
-        => EffectCanvasExpansion.FromBounds(_project.Width, _project.Height, EffectOutputBounds(all), s_canvasExpandMode);
+        => EffectCanvasExpansion.FromBounds(_project.Width, _project.Height, WaitOutputBounds(all), s_canvasExpandMode);
+
+    /// <summary>
+    /// 모든 프레임의 효과 결과 범위. 작업 스레드가 다 그렸으면 그 결과를 쓰고, 아직 그리는 중이면 덮개(퍼센트)를 띄우고 끝날 때까지 기다린다 —
+    /// 그리던 것을 이어 그리므로 처음부터 다시 그리지 않는다(예전에는 확인을 누르면 모든 프레임을 화면 스레드에서 다시 그려 몇 초씩 멈췄다).
+    /// 그리던 것이 없으면 덮개를 띄우고 작업 스레드에서 모두 그려 잰다.
+    /// </summary>
+    private Rectangle WaitOutputBounds(IReadOnlyList<LayerEffect> all)
+    {
+        if (RenderedOutputBounds() is { } done) return done;
+        if (_renders is { } job && !job.Cts.IsCancellationRequested)
+        {
+            WorkOverlay.Run(this, UiStrings.Busy_EffectBounds, progress =>
+            {
+                using var stage = progress.Begin(job.Count);
+                int reported = 0;
+                while (!job.Task.IsCompleted)
+                {
+                    job.Task.Wait(30);
+                    int finished = job.Count - Volatile.Read(ref job.Remaining);
+                    stage.Step(finished - reported);
+                    reported = finished;
+                }
+            });
+            if (RenderedOutputBounds() is { } bounds) return bounds;
+        }
+        return WorkOverlay.Run(this, UiStrings.Busy_EffectBounds, _ => EffectOutputBounds(all));
+    }
 
     /// <summary>모든 프레임에 공통인 전·후 미리보기 영역과 확인 후 캔버스(원래 캔버스 좌표).</summary>
     private Rectangle _previewBounds, _previewCanvas;
 
-    /// <summary>모든 프레임의 결과로 확인 때 적용할 캔버스를 계산하고, 미리보기 배율·위치를 고정한다.</summary>
+    /// <summary>
+    /// 모든 프레임의 결과로 확인 때 적용할 캔버스를 계산하고, 미리보기 배율·위치를 고정한다. 아직 모든 프레임을 그리지 않았으면
+    /// 지금 자리·배율을 그대로 둔다(다 그리면 다시 부름).
+    /// </summary>
     private void SyncCanvasExpansion()
     {
+        if (RenderedOutputBounds() is not { } output) return;
         var currentCanvas = new Rectangle(0, 0, _project.Width, _project.Height);
         _previewBounds = _previewCanvas = currentCanvas;
         try
         {
-            var output = EffectOutputBounds(VirtualEffects());
             if (_expandCanvas.On())
             {
                 var plan = EffectCanvasExpansion.FromBounds(_project.Width, _project.Height, output, s_canvasExpandMode);

@@ -1,4 +1,5 @@
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -6,6 +7,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi ColorCycleUi => EffectUi.For<ColorCycleEffect>(ColorCycleDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_23A9E57A2F, UiStrings.S_LayerEffectsDialog_KindTable_1ABE2A05EE,
+        Avalonia.Media.Color.FromRgb(230, 60, 120), (dialog, e, set) => dialog.ColorCyclePanel(e, set),
+        cycle => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_055B04E8E0,cycle.Colors.Count,cycle.Steps) + (cycle.Reverse ? UiStrings.S_LayerEffectsDialog_Summary_D6E8941524 : ""));
+
     /// <summary>
     /// 색 순환 설정: 순환할 색(2~8개, 색마다 [−]) + [+ 색 추가]·[그림에서 색 가져오기 ▾](이 프레임 그림에 쓰인 색 — 누르면 그 색 추가), 칸 수, 방향.
     /// 색을 더하거나 빼면 설정 칸을 다시 만든다.

@@ -2,10 +2,13 @@ using System.Drawing;
 using System.Globalization;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.Core.Edit;
+using Gpixel.Core.Scripting;
 
 namespace Gpixel.Core.IO;
 
@@ -14,7 +17,8 @@ public sealed record ProjectSaveResult(string ProjectPath, ProjectExportResult? 
 
 /// <summary>
 /// <c>.gpixel</c> 프로젝트 파일 읽기/쓰기. 형식은 ZIP:
-/// <c>project.json</c>(버전 3, 캔버스·레이어(종류·그룹·스킨·부위 크기·위치·피벗·테두리)·프레임·태그·Unity·내보내기 설정) +
+/// <c>project.json</c>(버전 4, 캔버스·레이어(종류·그룹·스킨·부위 크기·위치·피벗·테두리·효과)·프레임·태그·Unity·내보내기 설정,
+/// 스크립트 효과가 있으면 스크립트 표 <c>scripts</c>: 원문 해시 → 원문) +
 /// <c>cels/L{레이어 번호}_F{프레임 번호}.png</c>(셀, 부위 셀은 부위 크기 — 부위는 그룹의 첫 스킨 셀) +
 /// <c>cels/L{레이어}_F{프레임}_S{스킨 번호}.png</c>(부위의 첫 스킨이 아닌 스킨 셀, 스킨 번호 = 그룹 스킨 목록 번호 1~).
 /// 빈 셀은 생략, 번호는 0부터, 레이어 0 = 맨 아래.
@@ -25,12 +29,15 @@ public sealed record ProjectSaveResult(string ProjectPath, ProjectExportResult? 
 /// </summary>
 public static partial class ProjectIO
 {
-    public const int CurrentVersion = 3;
+    /// <summary>4 = 레이어 효과를 안정된 종류 ID와 설정 객체로 쓰는 판(<see cref="EffectCodec"/>). 3 이하의 짧은 효과 ID는 읽을 때 바꾼다.</summary>
+    public const int CurrentVersion = 4;
     public const string ProjectEntryName = "project.json";
 
     internal static readonly JsonSerializerOptions Options = new()
     {
         WriteIndented = true,
+        // 줄바꿈은 OS와 관계없이 LF — Windows·macOS에서 같은 문서를 저장하면 같은 바이트(버전 관리에서 줄바꿈만 바뀌지 않게)
+        NewLine = "\n",
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters = { new JsonStringEnumConverter() },
@@ -59,32 +66,68 @@ public static partial class ProjectIO
     public static void Save(SpriteProject project, string path)
     {
         var full = Path.GetFullPath(path);
+        WriteFile(project, full, null);
+        project.Path = full;
+        project.IsDirty = false;
+    }
+
+    /// <summary>
+    /// 프로젝트를 <paramref name="full"/>에 쓴다(임시 파일에 쓴 뒤 바꿔치기). 프로젝트는 읽기만 하고 경로·수정됨은 바꾸지 않는다 —
+    /// 프로젝트를 아무도 고치지 않는 동안이면 작업 스레드에서 불러도 된다.
+    /// </summary>
+    /// <param name="stage">진행(단위: 셀 픽셀, 모두 <see cref="CelUnits"/>).</param>
+    internal static void WriteFile(SpriteProject project, string full, WorkStage? stage)
+    {
         var dir = Path.GetDirectoryName(full);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         var temp = full + ".gpixel-tmp";
         try
         {
             using (var fs = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                Save(project, fs, full);
+                Save(project, fs, full, stage);
             File.Move(temp, full, overwrite: true);
         }
         finally
         {
             if (File.Exists(temp)) File.Delete(temp);
         }
-        project.Path = full;
-        project.IsDirty = false;
     }
 
     /// <summary>ZIP 내용을 스트림에 쓴다(경로·수정 여부는 바꾸지 않음). 경로를 모르므로 내보내기 기록(<see cref="SpriteProject.ExportedFiles"/>)은 쓰지 않는다.</summary>
-    public static void Save(SpriteProject project, Stream stream) => Save(project, stream, null);
+    public static void Save(SpriteProject project, Stream stream) => Save(project, stream, null, null);
 
     /// <param name="projectPath">저장할 프로젝트 전체 경로(내보내기 기록을 이 파일 기준 상대 경로로 씀). null이면 기록을 쓰지 않는다.</param>
-    private static void Save(SpriteProject project, Stream stream, string? projectPath)
+    private static void Save(SpriteProject project, Stream stream, string? projectPath, WorkStage? stage)
     {
         using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true);
         WriteProjectJson(zip, ToDto(project, projectPath));
 
+        // 셀 PNG는 여러 코어에서 묶음씩 만들고 ZIP에는 정한 차례대로 쓴다(파일 내용은 차례대로 만든 것과 같다). 묶음만큼만 메모리에 둔다.
+        var cels = CelsToWrite(project);
+        int batch = Math.Max(1, Environment.ProcessorCount * 2);
+        var encoded = new byte[]?[Math.Min(batch, cels.Count)];
+        for (int start = 0; start < cels.Count; start += batch)
+        {
+            int count = Math.Min(batch, cels.Count - start), first = start;
+            Parallel.For(0, count, i => encoded[i] = EncodeCel(cels[first + i].Cel, stage));
+            for (int i = 0; i < count; i++)
+            {
+                if (encoded[i] is { } png)
+                {
+                    // PNG는 이미 압축되어 있으므로 ZIP 압축은 하지 않는다.
+                    var entry = zip.CreateEntry(cels[first + i].Name, CompressionLevel.NoCompression);
+                    using var es = entry.Open();
+                    es.Write(png);
+                }
+                encoded[i] = null;
+            }
+        }
+    }
+
+    /// <summary>저장할 셀(이름, 그림) — 레이어 → 프레임 → 스킨 차례. 빈 셀도 들어 있다(<see cref="EncodeCel"/>이 거른다).</summary>
+    private static List<(string Name, PixelImage Cel)> CelsToWrite(SpriteProject project)
+    {
+        var list = new List<(string, PixelImage)>();
         for (int li = 0; li < project.Layers.Count; li++)
         {
             var layer = project.Layers[li];
@@ -93,12 +136,16 @@ public static partial class ProjectIO
             for (int fi = 0; fi < project.Frames.Count; fi++)
             {
                 var frame = project.Frames[fi];
-                WriteCel(zip, CelEntryName(li, fi), project.GetCelRaw(layer, frame, null));
+                if (project.GetCelRaw(layer, frame, null) is { } cel) list.Add((CelEntryName(li, fi), cel));
                 for (int si = 1; si < skins.Count; si++)
-                    WriteCel(zip, CelEntryName(li, fi, si), project.GetCelRaw(layer, frame, skins[si]));
+                    if (project.GetCelRaw(layer, frame, skins[si]) is { } skinCel) list.Add((CelEntryName(li, fi, si), skinCel));
             }
         }
+        return list;
     }
+
+    /// <summary>저장 진행의 전체 단위: 저장할 셀의 픽셀 수.</summary>
+    internal static long CelUnits(SpriteProject project) => CelsToWrite(project).Sum(c => (long)c.Cel.Width * c.Cel.Height);
 
     private static void WriteProjectJson(ZipArchive zip, ProjectDto dto)
     {
@@ -108,13 +155,17 @@ public static partial class ProjectIO
         w.Write(json);
     }
 
-    private static void WriteCel(ZipArchive zip, string name, PixelImage? cel)
+    /// <summary>셀 PNG 바이트. 빈 셀은 null(저장하지 않음).</summary>
+    private static byte[]? EncodeCel(PixelImage cel, WorkStage? stage)
     {
-        if (cel is null || cel.IsRegionEmpty(cel.Bounds)) return;
-        // PNG는 이미 압축되어 있으므로 ZIP 압축은 하지 않는다.
-        var entry = zip.CreateEntry(name, CompressionLevel.NoCompression);
-        using var es = entry.Open();
-        PngIO.Save(cel, es);
+        if (cel.IsRegionEmpty(cel.Bounds))
+        {
+            stage?.Step((long)cel.Width * cel.Height);
+            return null;
+        }
+        using var ms = new MemoryStream();
+        PngIO.Save(cel, ms, stage);
+        return ms.ToArray();
     }
 
     /// <summary>
@@ -122,9 +173,27 @@ public static partial class ProjectIO
     /// 내보낼 결과 목록(기록)은 저장 전에 정해 <c>.gpixel</c>에 함께 저장한다. 지난 기록에 있고 이번에 만들지 않는 옛 결과는
     /// <see cref="ProjectExportResult.Stale"/>로 돌려준다(지우지 않음). 다른 경로로 저장하면 지난 기록은 원래 프로젝트 것이라 넘기지 않는다.
     /// 프로젝트 저장 뒤 내보내기가 실패하면 예외가 그대로 올라온다(프로젝트 파일은 이미 저장됨).
+    /// 오래 걸리는 쓰기만 작업 스레드에서 하려면 <see cref="BeginSave"/> → <see cref="ProjectSaveJob.Run"/> → <see cref="ProjectSaveJob.Finish"/>로 나눠 부른다.
     /// </summary>
     /// <param name="path">저장 경로. null이면 <see cref="SpriteProject.Path"/>.</param>
     public static ProjectSaveResult SaveWithExport(SpriteProject project, string? path = null)
+    {
+        var job = BeginSave(project, path);
+        job.Run();
+        return job.Finish();
+    }
+
+    /// <summary>
+    /// 저장 준비(UI 스레드): 내보낼 결과 목록을 정해 기록(<see cref="SpriteProject.ExportedFiles"/>)에 넣는다. 그다음 <see cref="ProjectSaveJob.Run"/>은
+    /// 프로젝트를 읽기만 하므로 아무도 프로젝트를 고치지 않는 동안 작업 스레드에서 돌려도 되고, 상태 변경(경로·수정됨)과 실패 알림은
+    /// <see cref="ProjectSaveJob.Finish"/>가 부르는 스레드에서 한다.
+    /// </summary>
+    /// <param name="path">저장 경로. null이면 <see cref="SpriteProject.Path"/>.</param>
+    /// <param name="snapshot">
+    /// true면 지금 상태의 사본(<see cref="SnapshotForSave"/>, 셀 픽셀 복사)을 만들어 그것을 쓴다 — <see cref="ProjectSaveJob.Run"/>이 도는 동안
+    /// 원래 프로젝트를 계속 고쳐도 된다(자동 저장). 사본만큼 메모리를 잠시 더 쓴다(<see cref="CelBytes"/>).
+    /// </param>
+    public static ProjectSaveJob BeginSave(SpriteProject project, string? path = null, bool snapshot = false)
     {
         path ??= project.Path ?? throw new InvalidOperationException(Gpixel.Core.Localization.DomainStrings.Document_NoSavePath);
         var full = Path.GetFullPath(path);
@@ -145,17 +214,45 @@ public static partial class ProjectIO
                 planError = ex; // 프로젝트는 저장하고 내보내기 실패로 알린다
             }
         }
-        try
+        var source = snapshot ? SnapshotForSave(project, full) : project;
+        return new ProjectSaveJob(project, source, full, previous, plan, planError);
+    }
+
+    /// <summary>저장할 셀 픽셀의 바이트 수(<see cref="BeginSave"/>의 사본이 더 쓰는 메모리).</summary>
+    public static long CelBytes(SpriteProject project) => CelUnits(project) * 4;
+
+    /// <summary>
+    /// 저장용 사본: 파일에 들어가는 것(구조·설정·효과·스크립트·내보내기 기록·셀 픽셀)을 옮긴 독립 프로젝트. 셀은 복사하므로 사본을 쓰는 동안
+    /// 원래 프로젝트를 고쳐도 된다. 파일을 쓰고 다시 읽는 것과 같은 길(<see cref="ToDto"/> → <see cref="FromDto"/>)이라 사본을 저장한 결과가
+    /// 원래 프로젝트를 저장한 결과와 같다.
+    /// </summary>
+    internal static SpriteProject SnapshotForSave(SpriteProject project, string fullPath)
+    {
+        var (copy, fileLayers) = FromDto(ToDto(project, fullPath), null);
+        var cels = new List<(Layer Layer, Frame Frame, Skin? Skin, PixelImage Source)>();
+        for (int li = 0; li < project.Layers.Count; li++)
         {
-            Save(project, full);
+            var layer = project.Layers[li];
+            if (layer.IsGroup) continue;
+            var skins = layer is { IsPart: true, Parent: { IsGroup: true } g } ? g.AllSkins : [];
+            var copySkins = fileLayers[li] is { IsPart: true, Parent: { IsGroup: true } cg } ? cg.AllSkins : [];
+            for (int fi = 0; fi < project.Frames.Count; fi++)
+            {
+                var frame = project.Frames[fi];
+                if (project.GetCelRaw(layer, frame, null) is { } cel) cels.Add((fileLayers[li], copy.Frames[fi], null, cel));
+                for (int si = 1; si < skins.Count && si < copySkins.Count; si++)
+                    if (project.GetCelRaw(layer, frame, skins[si]) is { } skinCel) cels.Add((fileLayers[li], copy.Frames[fi], copySkins[si], skinCel));
+            }
         }
-        catch
-        {
-            project.ExportedFiles = previous;
-            throw;
-        }
-        if (planError is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(planError);
-        return new ProjectSaveResult(project.Path!, plan is null ? null : ProjectExport.Write(project, plan));
+        // 셀 복사는 새 메모리를 처음 건드리는 비용이 커서 여러 코어로 나눈다(부르는 쪽은 UI 스레드)
+        var copies = new PixelImage[cels.Count];
+        Parallel.For(0, cels.Count, i => copies[i] = cels[i].Source.Clone());
+        for (int i = 0; i < cels.Count; i++) copy.SetCelRaw(cels[i].Layer, cels[i].Frame, copies[i], cels[i].Skin);
+        copy.NormalizeSkins();
+        copy.ExportedFiles = project.ExportedFiles;
+        copy.Path = fullPath;
+        copy.IsDirty = false;
+        return copy;
     }
 
     /// <summary>
@@ -425,22 +522,23 @@ public static partial class ProjectIO
     /// 프로젝트 파일을 연다(경로 설정, 수정됨 아님). 손상·지원하지 않는 버전이면 <see cref="InvalidDataException"/>.
     /// 읽지 못한 셀은 빈 셀이 되고 <paramref name="warnings"/>에 적힌다. 버전 1 아틀라스 파일은 부위 레이어로 바꿔 읽는다.
     /// </summary>
-    public static SpriteProject Load(string path, ICollection<string>? warnings = null)
+    /// <param name="progress">진행(셀 PNG 풀기). 셀이 없으면 단계를 잡지 않는다.</param>
+    public static SpriteProject Load(string path, ICollection<string>? warnings = null, WorkProgress? progress = null)
     {
         var full = Path.GetFullPath(path);
         SpriteProject project;
         using (var fs = File.OpenRead(full))
-            project = Load(fs, warnings, full);
+            project = Load(fs, warnings, full, progress);
         project.Path = full;
         project.IsDirty = false;
         return project;
     }
 
-    /// <inheritdoc cref="Load(string, ICollection{string}?)"/>
-    public static SpriteProject Load(Stream stream, ICollection<string>? warnings = null) => Load(stream, warnings, null);
+    /// <inheritdoc cref="Load(string, ICollection{string}?, WorkProgress?)"/>
+    public static SpriteProject Load(Stream stream, ICollection<string>? warnings = null) => Load(stream, warnings, null, null);
 
     /// <param name="fullPath">프로젝트 파일 경로. 버전 1 아틀라스의 예전 내보내기 이름(파일 이름, null이면 "sprite")과 내보내기 기록에 쓴다.</param>
-    private static SpriteProject Load(Stream stream, ICollection<string>? warnings, string? fullPath)
+    private static SpriteProject Load(Stream stream, ICollection<string>? warnings, string? fullPath, WorkProgress? progress)
     {
         var baseName = fullPath is null ? null : Path.GetFileNameWithoutExtension(fullPath);
         ZipArchive zip;
@@ -462,17 +560,38 @@ public static partial class ProjectIO
 
             var (project, fileLayers) = FromDto(dto, warnings);
             project.ExportedFiles = ResolveRecord(dto.Exported, fullPath);
+            // 셀 PNG는 ZIP에서 차례대로 읽어 여러 코어에서 풀고, 프로젝트·경고에는 파일 차례대로 넣는다(한 번에 차례대로 읽은 것과 같다).
+            var slots = new List<(ZipArchiveEntry Entry, Layer? Layer, int Frame, Skin? Skin)>();
             foreach (var e in zip.Entries)
             {
                 if (CelEntry().Match(e.FullName.Replace('\\', '/')) is not { Success: true } m) continue;
                 if (!TryIndex(m, 1, fileLayers.Count, out var li) || !TryIndex(m, 2, project.Frames.Count, out var fi)
                     || fileLayers[li].IsGroup || !TrySkin(m, fileLayers[li], out var skin))
+                    slots.Add((e, null, 0, null));
+                else slots.Add((e, fileLayers[li], fi, skin));
+            }
+            var cels = new (PixelImage? Image, string? Warning)[slots.Count];
+            var bytes = new byte[]?[slots.Count];
+            for (int i = 0; i < slots.Count; i++)
+                if (slots[i].Layer is not null)
+                    (bytes[i], cels[i].Warning) = ReadBytes(slots[i].Entry);
+            using (var stage = slots.Count == 0 ? null : progress?.Begin(bytes.Sum(b => (long)(b?.Length ?? 0))))
+                Parallel.For(0, slots.Count, i =>
+                {
+                    if (bytes[i] is not { } png) return;
+                    cels[i] = DecodeCel(slots[i].Entry.FullName, png, project.CelSize(slots[i].Layer!));
+                    stage?.Step(png.Length);
+                });
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var (e, layer, fi, skin) = slots[i];
+                if (layer is null)
                 {
                     warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_UnusedCell(name: e.FullName));
                     continue;
                 }
-                var layer = fileLayers[li];
-                if (ReadCel(e, project.CelSize(layer), warnings) is { } img) project.SetCelRaw(layer, project.Frames[fi], img, skin);
+                if (cels[i].Warning is { } warning) warnings?.Add(warning);
+                if (cels[i].Image is { } img) project.SetCelRaw(layer, project.Frames[fi], img, skin);
             }
             project.NormalizeSkins();
             return project;
@@ -515,25 +634,45 @@ public static partial class ProjectIO
     /// <summary>셀 PNG를 읽어 <paramref name="size"/>로 맞춘다(크기가 다르면 왼쪽 위에 맞추고 알림). 읽지 못하면 null.</summary>
     private static PixelImage? ReadCel(ZipArchiveEntry e, Size size, ICollection<string>? warnings)
     {
-        PixelImage img;
+        var (bytes, readError) = ReadBytes(e);
+        var (image, warning) = bytes is null ? (null, readError) : DecodeCel(e.FullName, bytes, size);
+        if (warning is not null) warnings?.Add(warning);
+        return image;
+    }
+
+    /// <summary>ZIP 항목의 바이트. 읽지 못하면 null과 알림.</summary>
+    private static (byte[]? Bytes, string? Warning) ReadBytes(ZipArchiveEntry e)
+    {
         try
         {
             using var es = e.Open();
             using var ms = new MemoryStream();
             es.CopyTo(ms);
-            ms.Position = 0;
+            return (ms.ToArray(), null);
+        }
+        catch (InvalidDataException ex)
+        {
+            return (null, Gpixel.Core.Localization.DomainStrings.FormatProject_CellReadFailed(name: e.FullName, error: ex.Message));
+        }
+    }
+
+    /// <summary>셀 PNG를 풀어 <paramref name="size"/>로 맞춘다(크기가 다르면 왼쪽 위에 맞추고 알림). 풀지 못하면 null과 알림. 아무 스레드에서나 불러도 된다.</summary>
+    private static (PixelImage? Image, string? Warning) DecodeCel(string name, byte[] png, Size size)
+    {
+        PixelImage img;
+        try
+        {
+            using var ms = new MemoryStream(png, writable: false);
             img = PngIO.Load(ms);
         }
         catch (InvalidDataException ex)
         {
-            warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_CellReadFailed(name: e.FullName, error: ex.Message));
-            return null;
+            return (null, Gpixel.Core.Localization.DomainStrings.FormatProject_CellReadFailed(name: name, error: ex.Message));
         }
-        if (img.Size == size) return img;
+        if (img.Size == size) return (img, null);
         var fitted = new PixelImage(size.Width, size.Height);
         fitted.Blit(img, 0, 0);
-        warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_CellResized(name: e.FullName));
-        return fitted;
+        return (fitted, Gpixel.Core.Localization.DomainStrings.FormatProject_CellResized(name: name));
     }
 
     private static bool TryIndex(Match m, int group, int count, out int index)
@@ -678,7 +817,7 @@ public static partial class ProjectIO
             SkinOwners = l.IsGroup && l.AllSkins.Any(s => s.Owner is not null) ? l.AllSkins.Select(s => s.Owner is { } o ? p.IndexOf(o) : -1).ToList() : null,
             ActiveSkin = l.IsGroup && l.SkinList.IndexOf(l.ActiveSkin!) is > 0 and var ai ? ai : null,
             Skin = l is { IsPart: true, SkinOverride: { } so, Parent: { } pg } ? pg.SkinList.IndexOf(so) : null,
-            Effects = l.Effects.Count > 0 ? l.Effects.Select(e => (EffectDto?)EffectDto.From(e)).ToList() : null,
+            Effects = l.Effects.Count > 0 ? l.Effects.Select(e => (JsonObject?)EffectCodec.Write(e)).ToList() : null,
             AutoLayout = l is { IsGroup: true, AutoLayout: { } al } ? GroupLayoutDto.From(al) : null,
         }).ToList(),
         Frames = p.Frames.Select(f => new FrameDto
@@ -700,7 +839,11 @@ public static partial class ProjectIO
             Parts = o.Parts.Select(s => SkinRef(p, s.Part, s.Part.Parent, s.Skin)).OfType<SkinRefDto>().ToList(),
         }).ToList(),
         Exported = ToRecordDto(p.ExportedFiles, projectPath),
+        Scripts = p.ScriptsInUse() is { Count: > 0 } scripts ? scripts : null,
     };
+
+    /// <summary>알림에 보일 해시 앞부분(12자).</summary>
+    private static string ShortHash(string? hash) => hash is null ? "" : hash.Length > 12 ? hash[..12] : hash;
 
     private static List<T>? NullIfEmpty<T>(IEnumerable<T> items) => items.ToList() is { Count: > 0 } list ? list : null;
 
@@ -724,6 +867,12 @@ public static partial class ProjectIO
     private static (SpriteProject Project, List<Layer> FileLayers) FromDto(ProjectDto dto, ICollection<string>? warnings)
     {
         var p = SpriteProject.CreateBlank(dto.Width, dto.Height);
+        // 스크립트 표는 효과보다 먼저 넣는다(효과 설정을 그 schema에 맞춰 읽음). 원문과 해시가 다르면 쓰지 않는다(효과는 남고 그리지 않음).
+        foreach (var (hash, source) in dto.Scripts ?? [])
+        {
+            if (ScriptLibrary.IsHash(hash) && source is not null && ScriptEffectProgram.HashOf(source) == hash) p.AddScript(source);
+            else warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_BadScript(hash: ShortHash(hash)));
+        }
         var layerDtos = dto.Layers ?? [];
         var fileLayers = new List<Layer>(layerDtos.Count);
         foreach (var l in layerDtos)
@@ -765,8 +914,15 @@ public static partial class ProjectIO
             {
                 var list = new List<LayerEffect>(effects.Count);
                 foreach (var e in effects)
-                    if (e?.ToEffect() is { } effect) list.Add(effect);
-                    else warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_UnknownEffect(layer: layer.Name, type: e?.Type));
+                {
+                    var effect = e is null ? null : EffectCodec.Read(e);
+                    if (effect is not null) list.Add(effect);
+                    if (effect is ScriptEffect script && !p.Scripts.ContainsKey(script.ScriptHash))
+                        warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_MissingScript(layer: layer.Name, hash: ShortHash(script.ScriptHash)));
+                    // 모르는 효과는 원본 JSON 그대로 남기고(다시 저장하면 그대로 씀) 그리지 않는다는 것만 알린다.
+                    if (effect is null or MissingEffect)
+                        warnings?.Add(Gpixel.Core.Localization.DomainStrings.FormatProject_UnknownEffect(layer: layer.Name, type: (effect as MissingEffect)?.TypeId));
+                }
                 layer.Effects = list;
             }
             fileLayers.Add(layer);
@@ -1027,6 +1183,8 @@ public static partial class ProjectIO
         public ExportRecordDto? Exported { get; set; }
         /// <summary>착장 프리셋(없으면 없음 — 예전 파일).</summary>
         public List<OutfitDto>? Outfits { get; set; }
+        /// <summary>스크립트 표: 원문 해시 → 원문(스크립트 효과가 쓰는 것만, 없으면 스크립트 효과 없음).</summary>
+        public SortedDictionary<string, string>? Scripts { get; set; }
     }
 
     /// <summary>착장 프리셋: 이름, 그룹마다 스킨(레이어 = 그룹 번호), 부위 재정의(레이어 = 부위 번호, 스킨 = 그 그룹의 스킨 번호).</summary>
@@ -1083,7 +1241,7 @@ public static partial class ProjectIO
         /// <summary>부위: 그룹 스킨 대신 보일 스킨 번호(재정의, 없으면 그룹을 따름).</summary>
         public int? Skin { get; set; }
         /// <summary>레이어 효과(적용 순서대로). 없으면 효과 없음.</summary>
-        public List<EffectDto?>? Effects { get; set; }
+        public List<JsonObject?>? Effects { get; set; }
         /// <summary>그룹: 자동 배치 설정. 없으면 끔.</summary>
         public GroupLayoutDto? AutoLayout { get; set; }
     }
@@ -1200,473 +1358,6 @@ public static partial class ProjectIO
     {
         public double Position { get; set; }
         public byte Alpha { get; set; }
-    }
-
-    /// <summary>
-    /// 레이어 효과 하나. <see cref="Type"/>: outline · shadow · rim · overlay · innerglow · swap · adjust · reflection,
-    /// 움직이는 효과 explode · shine · squash · gradient · fade (모르는 종류는 읽을 때 건너뜀).
-    /// </summary>
-    internal sealed class EffectDto
-    {
-        public string? Type { get; set; }
-        public bool Enabled { get; set; } = true;
-        /// <summary>바로 앞의 클리핑되지 않은 효과가 바꾼 픽셀에만 적용.</summary>
-        public bool ClipToPrevious { get; set; }
-        /// <summary>외곽선·그림자·색 덮기·빛 지나가기 색, 가장자리 빛의 빛 색("#RRGGBBAA").</summary>
-        public string? Color { get; set; }
-        /// <summary>가장자리 빛의 그늘 색.</summary>
-        public string? Shade { get; set; }
-        /// <summary>색 설정별 그라데이션(키 = 속성 이름, 없으면 단색).</summary>
-        public Dictionary<string, ColorGradientDto>? ColorGradients { get; set; }
-        /// <summary>예전 시간 그라데이션(그라데이션 변화) 효과의 정지점 — 읽을 때 색 덮기로 바꾼다. 없으면 예전 공간 그라데이션 형식이다.</summary>
-        public ColorGradientDto? Gradient { get; set; }
-        public int? Thickness { get; set; }
-        public bool? Diagonal { get; set; }
-        public bool? Inside { get; set; }
-        /// <summary>외곽선 원본 지우기(켜졌을 때만 씀 — 없으면 끔, 예전 파일).</summary>
-        public bool? HideOriginal { get; set; }
-        /// <summary>그림자 X·Y, 터지기 직접 중심 X·Y.</summary>
-        public int? X { get; set; }
-        public int? Y { get; set; }
-        /// <summary>가장자리 빛 방향(<see cref="LightDirection"/> 이름, 모르면 기본값 — 글자로 두어 읽기가 실패하지 않게), 반사 방향(<see cref="ReflectionDirection"/> 이름) 등.</summary>
-        public string? Direction { get; set; }
-        /// <summary>색 덮기 양, 예전 시간 그라데이션·빛 지나가기 세기, 이전 파일의 늘었다 줄기 양쪽 공통 세기(%), 외곽선 명암 양(−100~100, 기본 −40이면 안 씀).</summary>
-        public int? Amount { get; set; }
-        /// <summary>늘었다 줄기의 축별 세기(%).</summary>
-        public int? WidthAmount { get; set; }
-        public int? HeightAmount { get; set; }
-        /// <summary>움직이는 효과: 빠르기 곡선·반복(<see cref="EffectEasing"/>·<see cref="EffectRepeat"/> 이름)과 반복 횟수.</summary>
-        public string? Easing { get; set; }
-        public string? Repeat { get; set; }
-        public int? RepeatCount { get; set; }
-        /// <summary>이전 터지기 프로젝트의 공통 이동 거리(녹아내리기·충격파 고리는 계속 사용).</summary>
-        public int? Distance { get; set; }
-        public int? DistanceX { get; set; }
-        public int? DistanceY { get; set; }
-        public string? Center { get; set; }
-        /// <summary>이전 터지기 프로젝트의 공통 흩어짐. 새 파일은 축별 값만 쓴다.</summary>
-        public int? Spread { get; set; }
-        public int? SpreadX { get; set; }
-        public int? SpreadY { get; set; }
-        public int? Gravity { get; set; }
-        public int? PieceSize { get; set; }
-        public bool? Fade { get; set; }
-        public int? FadeStart { get; set; }
-        public bool? Shrink { get; set; }
-        public int? Seed { get; set; }
-        public bool? KeepOriginal { get; set; }
-        public int? FlashFrames { get; set; }
-        public string? FlashColor { get; set; }
-        /// <summary>빛 지나가기.</summary>
-        public int? Angle { get; set; }
-        public int? Width { get; set; }
-        public int? Softness { get; set; }
-        /// <summary>늘었다 줄기.</summary>
-        public string? Anchor { get; set; }
-        public bool? StretchFirst { get; set; }
-        public int? Bounces { get; set; }
-        // 정적 효과와 예전 공간 그라데이션 형식
-        /// <summary>예전 공간 그라데이션 덮기의 색 B(색 A = <see cref="Color"/>).</summary>
-        public string? Color2 { get; set; }
-        /// <summary>색 덮기·안쪽 빛의 섞기(<see cref="EffectBlend"/> 이름).</summary>
-        public string? Blend { get; set; }
-        /// <summary>예전 공간 그라데이션의 디더(<see cref="EffectDither"/> 이름), 그림자의 디더 밀도(<see cref="ShadowDither"/> 이름, 없으면 반투명 — 예전 파일).</summary>
-        public string? Dither { get; set; }
-        /// <summary>색 바꾸기: [바꿀 색, 바뀐 색] 쌍들과 허용 차이.</summary>
-        public List<string[]>? Pairs { get; set; }
-        public int? Tolerance { get; set; }
-        /// <summary>색조 보정 방식, 예전 시간 그라데이션 방식, 움직이는 효과 일부의 방식, 외곽선 색 방식(<see cref="OutlineColorMode"/> 이름, 지정 색이면 안 씀).</summary>
-        public string? Mode { get; set; }
-        public int? Hue { get; set; }
-        public int? Brightness { get; set; }
-        public int? Contrast { get; set; }
-        public int? Saturation { get; set; }
-        /// <summary>반사(색 입히기 = <see cref="Color"/>).</summary>
-        public int? Gap { get; set; }
-        public int? Height { get; set; }
-        public int? OpacityStart { get; set; }
-        public int? OpacityEnd { get; set; }
-        public bool? DitherFade { get; set; }
-        public int? Wave { get; set; }
-        /// <summary>예전 파일의 반사 방향(true = 위, false = 아래) — 이제는 <see cref="Direction"/>에 쓰고 읽기만 한다.</summary>
-        public bool? Above { get; set; }
-        /// <summary>적용할 프레임 범위 [시작, 끝](0부터, 양 끝 포함). 없으면 모든 프레임(예전 파일).</summary>
-        public int[]? Frames { get; set; }
-        // 움직이는 효과(AnimFx): 피격 번쩍임 모양·깜빡이기 간격 방식은 Mode, 둥실둥실 높이는 Height, 쓸기 방향은 Direction, 녹아내리기 불규칙함은 Spread,
-        // 충격파 최대 반지름은 Distance를 함께 쓴다.
-        /// <summary>피격 번쩍임·깜빡이기·흔들기 횟수, 둥실둥실 오르내림 횟수, 잔상 개수.</summary>
-        public int? Count { get; set; }
-        /// <summary>깜빡이기 숨김 방식(<see cref="BlinkHide"/>), 나타나기 방식(<see cref="AppearStyle"/>) 이름.</summary>
-        public string? Style { get; set; }
-        /// <summary>흔들기·둥실둥실 축(<see cref="EffectAxis"/> 이름).</summary>
-        public string? Axis { get; set; }
-        public bool? Decay { get; set; }
-        public bool? Regular { get; set; }
-        /// <summary>잔상 간격(프레임).</summary>
-        public int? Interval { get; set; }
-        /// <summary>깜빡이기 반투명 불투명도, 잔상 불투명도(%).</summary>
-        public int? Opacity { get; set; }
-        public bool? Tint { get; set; }
-        /// <summary>색 순환 색들("#RRGGBBAA").</summary>
-        public string[]? Colors { get; set; }
-        public int? Steps { get; set; }
-        public bool? Reverse { get; set; }
-        public bool? Clockwise { get; set; }
-        public bool? Behind { get; set; }
-        public bool? Stretch { get; set; }
-        public int? OnFrames { get; set; }
-        public int? OffFrames { get; set; }
-        public bool? Disappear { get; set; }
-        public int? Edge { get; set; }
-        // 홀로그램: 색 = Color, 색 세기 = Amount, 주사선 간격 = Gap·방식 = Style, 띠 두께 = Thickness, 투명도 = Opacity, 디더 = DitherFade, 최대 밀림 = Distance, 시드 = Seed.
-        public int? ScanStrength { get; set; }
-        public bool? Scroll { get; set; }
-        public bool? Band { get; set; }
-        public int? BandStrength { get; set; }
-        public int? FlickerRate { get; set; }
-        public int? FlickerStrength { get; set; }
-        public int? GlitchRate { get; set; }
-        public bool? RgbSplit { get; set; }
-        public bool? EdgeGlow { get; set; }
-        public int? EdgeOpacity { get; set; }
-
-        public static EffectDto From(LayerEffect effect)
-        {
-            var dto = effect switch
-            {
-                OutlineEffect o => new EffectDto
-                {
-                    Type = "outline", Color = o.Color.ToHex(), Thickness = o.Thickness, Diagonal = o.Diagonal, Inside = o.Inside, HideOriginal = o.HideOriginal ? true : null,
-                    Mode = o.ColorMode == OutlineColorMode.Fixed ? null : o.ColorMode.ToString(),
-                    Amount = o.ShadeAmount == OutlineEffect.DefaultShadeAmount ? null : o.ShadeAmount,
-                },
-                ShadowEffect s => new EffectDto { Type = "shadow", Color = s.Color.ToHex(), X = s.OffsetX, Y = s.OffsetY, Dither = s.Dither == ShadowDither.None ? null : s.Dither.ToString() },
-                RimLightEffect r => new EffectDto { Type = "rim", Color = r.Light.ToHex(), Shade = r.Shade.ToHex(), Direction = r.Direction.ToString(), Thickness = r.Size },
-                ColorOverlayEffect c => new EffectDto { Type = "overlay", Color = c.Color.ToHex(), Amount = c.Amount, Blend = c.Blend.ToString() },
-                ExplodeEffect x => new EffectDto
-                {
-                    Type = "explode", DistanceX = x.DistanceX, DistanceY = x.DistanceY, Center = x.Center.ToString(), X = x.CenterX, Y = x.CenterY, SpreadX = x.SpreadX, SpreadY = x.SpreadY, Gravity = x.Gravity,
-                    PieceSize = x.PieceSize, Fade = x.Fade, FadeStart = x.FadeStart, Shrink = x.Shrink, Seed = x.Seed, KeepOriginal = x.KeepOriginal,
-                    FlashFrames = x.FlashFrames, FlashColor = x.FlashColor.ToHex(),
-                },
-                ShineEffect s => new EffectDto { Type = "shine", Angle = s.Angle, Width = s.Width, Color = s.Color.ToHex(), Amount = s.Strength, Softness = s.Softness },
-                SquashEffect q => new EffectDto { Type = "squash", WidthAmount = q.WidthAmount, HeightAmount = q.HeightAmount, Anchor = q.Anchor.ToString(), StretchFirst = q.StretchFirst, Bounces = q.Bounces },
-                InnerGlowEffect g => new EffectDto { Type = "innerglow", Color = g.Color.ToHex(), Thickness = g.Size, Amount = g.Strength, Fade = g.Fade, Blend = g.Blend.ToString() },
-                PaletteSwapEffect p => new EffectDto { Type = "swap", Pairs = p.Pairs.Select(q => new[] { q.From.ToHex(), q.To.ToHex() }).ToList(), Tolerance = p.Tolerance },
-                ColorAdjustEffect c => new EffectDto
-                {
-                    Type = "adjust", Mode = c.Mode.ToString(), Amount = c.Amount, Hue = c.Hue, Brightness = c.Brightness, Contrast = c.Contrast, Saturation = c.Saturation,
-                },
-                ReflectionEffect m => new EffectDto
-                {
-                    Type = "reflection", Gap = m.Gap, Height = m.Height, OpacityStart = m.OpacityStart, OpacityEnd = m.OpacityEnd, DitherFade = m.DitherFade,
-                    Color = m.Tint.ToHex(), Wave = m.Wave, Direction = m.Direction.ToString(),
-                },
-                HitFlashEffect hit => new EffectDto { Type = "hitflash", Color = hit.Color.ToHex(), Amount = hit.Strength, Count = hit.Count, Mode = hit.Shape.ToString() },
-                BlinkEffect blink => new EffectDto
-                {
-                    Type = "blink", Mode = blink.Timing.ToString(), OnFrames = blink.OnFrames, OffFrames = blink.OffFrames, Count = blink.Count, Style = blink.Hide.ToString(),
-                    Opacity = blink.Opacity,
-                },
-                ShakeEffect shake => new EffectDto
-                {
-                    Type = "shake", Axis = shake.Axis.ToString(), Amount = shake.Amount, Count = shake.Count, Decay = shake.Decay, Regular = shake.Regular, Seed = shake.Seed,
-                },
-                BobEffect bob => new EffectDto { Type = "bob", Height = bob.Height, Count = bob.Cycles, Axis = bob.Axis.ToString() },
-                AppearEffect appear => new EffectDto
-                {
-                    Type = "appear", Disappear = appear.Disappear, Style = appear.Style.ToString(), Direction = appear.From.ToString(), Edge = appear.Edge, Seed = appear.Seed,
-                },
-                FadeEffect fade => new EffectDto { Type = "fade", Disappear = fade.FadeOut },
-                MeltEffect melt => new EffectDto { Type = "melt", Distance = melt.Distance, Spread = melt.Irregularity, Stretch = melt.Stretch, Fade = melt.Fade, Seed = melt.Seed },
-                RotateEffect rotate => new EffectDto { Type = "rotate", Angle = rotate.Angle, Anchor = rotate.Anchor.ToString() },
-                AfterimageEffect after => new EffectDto
-                {
-                    Type = "afterimage", Count = after.Count, Interval = after.Interval, Opacity = after.Opacity, Tint = after.Tint, Color = after.TintColor.ToHex(),
-                },
-                ColorCycleEffect cycle => new EffectDto { Type = "colorcycle", Colors = cycle.Colors.Select(k => k.ToHex()).ToArray(), Steps = cycle.Steps, Reverse = cycle.Reverse },
-                ShockwaveEffect wave => new EffectDto
-                {
-                    Type = "shockwave", Center = wave.Center.ToString(), X = wave.CenterX, Y = wave.CenterY, Distance = wave.Radius, Thickness = wave.Thickness,
-                    Color = wave.Color.ToHex(), Fade = wave.Fade, Behind = wave.Behind,
-                },
-                HologramEffect holo => new EffectDto
-                {
-                    Type = "hologram", Color = holo.Color.ToHex(), Amount = holo.TintStrength, Gap = holo.ScanGap, ScanStrength = holo.ScanStrength, Style = holo.ScanStyle.ToString(),
-                    Scroll = holo.ScanScroll, Band = holo.Band, Thickness = holo.BandSize, BandStrength = holo.BandStrength, Opacity = holo.Opacity, DitherFade = holo.Dither,
-                    FlickerRate = holo.FlickerRate, FlickerStrength = holo.FlickerStrength, GlitchRate = holo.GlitchRate, Distance = holo.GlitchShift, RgbSplit = holo.RgbSplit,
-                    EdgeGlow = holo.EdgeGlow, EdgeOpacity = holo.EdgeOpacity, Seed = holo.Seed,
-                },
-                _ => throw new NotSupportedException(Gpixel.Core.Localization.DomainStrings.FormatProject_UnsavableEffect(type: effect.GetType().Name)),
-            };
-            dto.Enabled = effect.Enabled;
-            dto.ClipToPrevious = effect.ClipToPrevious;
-            dto.Frames = effect.Frames is { } f ? [f.From, f.To] : null;
-            if (effect.ColorGradients.Count > 0)
-                dto.ColorGradients = effect.ColorGradients.ToDictionary(
-                    entry => entry.Key,
-                    entry => ColorGradientDto.From(entry.Value));
-            if (effect is AnimatedEffect a)
-            {
-                dto.Easing = a.Easing.ToString();
-                dto.Repeat = a.Repeat.ToString();
-                dto.RepeatCount = a.RepeatCount;
-            }
-            return dto;
-        }
-
-        private static T EnumOr<T>(string? name, T fallback) where T : struct, Enum
-            => Enum.TryParse<T>(name, true, out var v) && Enum.IsDefined(v) ? v : fallback;
-
-        private static Color32 ColorOr(string? hex, Color32 fallback) => Color32.TryParseHex(hex, out var c) ? c : fallback;
-
-        /// <summary>효과로 바꾼다(모르는 종류면 null). 프레임 범위는 음수만 걸러 두고, 프레임 수에 맞추기는 프레임을 읽은 뒤에 한다.</summary>
-        public LayerEffect? ToEffect()
-        {
-            var effect = ToKind();
-            if (effect is null) return null;
-            effect = effect with { ClipToPrevious = ClipToPrevious };
-            // The "gradient" type builds its color gradients itself (legacy spatial A/B or the removed gradient map).
-            if (ColorGradients is { Count: > 0 }
-                && Type?.Trim().Equals("gradient", StringComparison.OrdinalIgnoreCase) != true)
-                effect = effect with { ColorGradients = ColorGradients
-                    .Where(entry => !string.IsNullOrWhiteSpace(entry.Key) && entry.Value is not null)
-                    .ToDictionary(entry => entry.Key, entry => entry.Value.ToGradient()) };
-            if (Frames is not [int from, int to]) return effect;
-            return effect with { Frames = new FrameRange(Math.Max(0, Math.Min(from, to)), Math.Max(0, Math.Max(from, to))) };
-        }
-
-        private LayerEffect? ToKind()
-        {
-            switch (Type?.Trim().ToLowerInvariant())
-            {
-                case "outline":
-                    var o = new OutlineEffect();
-                    return o with
-                    {
-                        Enabled = Enabled, Color = ColorOr(Color, o.Color), Thickness = Thickness ?? o.Thickness, Diagonal = Diagonal ?? o.Diagonal, Inside = Inside ?? o.Inside,
-                        HideOriginal = HideOriginal ?? o.HideOriginal, ColorMode = EnumOr(Mode, o.ColorMode), ShadeAmount = Amount ?? o.ShadeAmount,
-                    };
-                case "shadow":
-                    var s = new ShadowEffect();
-                    return s with { Enabled = Enabled, Color = ColorOr(Color, s.Color), OffsetX = X ?? s.OffsetX, OffsetY = Y ?? s.OffsetY, Dither = EnumOr(Dither, s.Dither) };
-                case "rim":
-                    var r = new RimLightEffect();
-                    return r with
-                    {
-                        Enabled = Enabled, Light = ColorOr(Color, r.Light), Shade = ColorOr(Shade, r.Shade),
-                        Direction = EnumOr(Direction, r.Direction), Size = Thickness ?? r.Size,
-                    };
-                case "overlay":
-                    var c = new ColorOverlayEffect();
-                    return c with { Enabled = Enabled, Color = ColorOr(Color, c.Color), Amount = Amount ?? c.Amount, Blend = EnumOr(Blend, c.Blend) };
-                case "explode":
-                    var x = new ExplodeEffect();
-                    return Animated(x with
-                    {
-                        DistanceX = DistanceX ?? Distance ?? x.DistanceX, DistanceY = DistanceY ?? Distance ?? x.DistanceY, Center = EnumOr(Center, x.Center), CenterX = X ?? x.CenterX, CenterY = Y ?? x.CenterY,
-                        SpreadX = SpreadX ?? Spread ?? x.SpreadX, SpreadY = SpreadY ?? Spread ?? x.SpreadY, Gravity = Gravity ?? x.Gravity, PieceSize = PieceSize ?? x.PieceSize, Fade = Fade ?? x.Fade,
-                        FadeStart = FadeStart ?? x.FadeStart, Shrink = Shrink ?? x.Shrink, Seed = Seed ?? x.Seed, KeepOriginal = KeepOriginal ?? x.KeepOriginal,
-                        FlashFrames = FlashFrames ?? x.FlashFrames, FlashColor = ColorOr(FlashColor, x.FlashColor),
-                    });
-                case "shine":
-                    var s2 = new ShineEffect();
-                    return Animated(s2 with
-                    {
-                        Angle = Angle ?? s2.Angle, Width = Width ?? s2.Width, Color = ColorOr(Color, s2.Color), Strength = Amount ?? s2.Strength, Softness = Softness ?? s2.Softness,
-                    });
-                case "squash":
-                    var q = new SquashEffect();
-                    return Animated(q with
-                    {
-                        WidthAmount = WidthAmount ?? Amount ?? q.WidthAmount, HeightAmount = HeightAmount ?? Amount ?? q.HeightAmount,
-                        Anchor = EnumOr(Anchor, q.Anchor), StretchFirst = StretchFirst ?? q.StretchFirst, Bounces = Bounces ?? q.Bounces,
-                    });
-                case "gradient":
-                    if (Gradient is { } temporal)
-                        return GradientMap(temporal);
-                    var legacyStops = LegacyGradientMapStops;
-                    var colorA = ColorOr(Color, legacyStops[0].Color);
-                    var colorB = ColorOr(Color2, legacyStops[^1].Color);
-                    var oldDither = EnumOr(Dither, EffectDither.None);
-                    var spatial = ColorGradients is { } oldGradients && oldGradients.TryGetValue("Gradient", out var saved) && saved is not null
-                        ? saved.ToGradient()
-                        : new EffectColorGradient
-                        {
-                            // 예전 A/B의 직선 RGBA 보간·반올림을 그대로 유지한다.
-                            Stops = [new(0, colorA), new(1, colorB)],
-                            StraightRgba = true,
-                            ColorSpace = GradientColorSpace.Rgb,
-                            Angle = Angle ?? 270,
-                            Dither = oldDither switch
-                            {
-                                EffectDither.Bayer2 => GradientDither.Bayer2,
-                                EffectDither.Bayer4 => GradientDither.Bayer4,
-                                _ => GradientDither.None,
-                            },
-                        };
-                    return new ColorOverlayEffect
-                    {
-                        Enabled = Enabled,
-                        Color = colorA,
-                        Amount = Amount ?? 100,
-                        Blend = EnumOr(Blend, EffectBlend.Normal),
-                        ColorGradients = new Dictionary<string, EffectColorGradient>
-                        {
-                            [nameof(ColorOverlayEffect.Color)] = spatial,
-                        },
-                    };
-                case "innerglow":
-                    var ig = new InnerGlowEffect();
-                    return ig with
-                    {
-                        Enabled = Enabled, Color = ColorOr(Color, ig.Color), Size = Thickness ?? ig.Size, Strength = Amount ?? ig.Strength, Fade = Fade ?? ig.Fade,
-                        Blend = EnumOr(Blend, ig.Blend),
-                    };
-                case "swap":
-                    var sw = new PaletteSwapEffect();
-                    return sw with
-                    {
-                        Enabled = Enabled, Tolerance = Tolerance ?? sw.Tolerance,
-                        Pairs = (Pairs ?? []).Where(q => q is [_, _] && Color32.TryParseHex(q[0], out _) && Color32.TryParseHex(q[1], out _))
-                            .Select(q => new ColorSwap(ColorOr(q[0], default), ColorOr(q[1], default))).ToArray(),
-                    };
-                case "adjust":
-                    var ad = new ColorAdjustEffect();
-                    return ad with
-                    {
-                        Enabled = Enabled, Mode = EnumOr(Mode, ad.Mode), Amount = Amount ?? ad.Amount, Hue = Hue ?? ad.Hue, Brightness = Brightness ?? ad.Brightness,
-                        Contrast = Contrast ?? ad.Contrast, Saturation = Saturation ?? ad.Saturation,
-                    };
-                case "reflection":
-                    var m = new ReflectionEffect();
-                    return m with
-                    {
-                        Enabled = Enabled, Gap = Gap ?? m.Gap, Height = Height ?? m.Height, OpacityStart = OpacityStart ?? m.OpacityStart, OpacityEnd = OpacityEnd ?? m.OpacityEnd,
-                        DitherFade = DitherFade ?? m.DitherFade, Tint = ColorOr(Color, m.Tint), Wave = Wave ?? m.Wave,
-                        Direction = EnumOr(Direction, Above == true ? ReflectionDirection.Up : m.Direction),
-                    };
-                case "hitflash":
-                    var hf = new HitFlashEffect();
-                    return Animated(hf with { Color = ColorOr(Color, hf.Color), Strength = Amount ?? hf.Strength, Count = Count ?? hf.Count, Shape = EnumOr(Mode, hf.Shape) });
-                case "blink":
-                    var bl = new BlinkEffect();
-                    return Animated(bl with
-                    {
-                        Timing = EnumOr(Mode, bl.Timing), OnFrames = OnFrames ?? bl.OnFrames, OffFrames = OffFrames ?? bl.OffFrames, Count = Count ?? bl.Count,
-                        Hide = EnumOr(Style, bl.Hide), Opacity = Opacity ?? bl.Opacity,
-                    });
-                case "shake":
-                    var sk = new ShakeEffect();
-                    return Animated(sk with
-                    {
-                        Axis = EnumOr(Axis, sk.Axis), Amount = Amount ?? sk.Amount, Count = Count ?? sk.Count, Decay = Decay ?? sk.Decay, Regular = Regular ?? sk.Regular,
-                        Seed = Seed ?? sk.Seed,
-                    });
-                case "bob":
-                    var bo = new BobEffect();
-                    return Animated(bo with { Height = Height ?? bo.Height, Cycles = Count ?? bo.Cycles, Axis = EnumOr(Axis, bo.Axis) });
-                case "appear":
-                    var ap = new AppearEffect();
-                    return Animated(ap with
-                    {
-                        Disappear = Disappear ?? ap.Disappear, Style = EnumOr(Style, ap.Style), From = EnumOr(Direction, ap.From), Edge = Edge ?? ap.Edge, Seed = Seed ?? ap.Seed,
-                    });
-                case "fade":
-                    var fade = new FadeEffect();
-                    return Animated(fade with { FadeOut = Disappear ?? fade.FadeOut });
-                case "melt":
-                    var me = new MeltEffect();
-                    return Animated(me with
-                    {
-                        Distance = Distance ?? me.Distance, Irregularity = Spread ?? me.Irregularity, Stretch = Stretch ?? me.Stretch, Fade = Fade ?? me.Fade, Seed = Seed ?? me.Seed,
-                    });
-                case "rotate":
-                    var ro = new RotateEffect();
-                    return Animated(ro with { Angle = Clockwise == false ? -Math.Abs(Angle ?? ro.Angle) : Angle ?? ro.Angle, Anchor = EnumOr(Anchor, ro.Anchor) });
-                case "afterimage":
-                    var ai = new AfterimageEffect();
-                    return Animated(ai with
-                    {
-                        Count = Count ?? ai.Count, Interval = Interval ?? ai.Interval, Opacity = Opacity ?? ai.Opacity, Tint = Tint ?? ai.Tint, TintColor = ColorOr(Color, ai.TintColor),
-                    });
-                case "colorcycle":
-                    var cc = new ColorCycleEffect();
-                    return Animated(cc with
-                    {
-                        Colors = Colors is null ? cc.Colors : Colors.Where(h => Color32.TryParseHex(h, out _)).Select(h => ColorOr(h, default)).ToArray(),
-                        Steps = Steps ?? cc.Steps, Reverse = Reverse ?? cc.Reverse,
-                    });
-                case "shockwave":
-                    var sh = new ShockwaveEffect();
-                    return Animated(sh with
-                    {
-                        Center = EnumOr(Center, sh.Center), CenterX = X ?? sh.CenterX, CenterY = Y ?? sh.CenterY, Radius = Distance ?? sh.Radius, Thickness = Thickness ?? sh.Thickness,
-                        Color = ColorOr(Color, sh.Color), Fade = Fade ?? sh.Fade, Behind = Behind ?? sh.Behind,
-                    });
-                case "hologram":
-                    var ho = new HologramEffect();
-                    return Animated(ho with
-                    {
-                        Color = ColorOr(Color, ho.Color), TintStrength = Amount ?? ho.TintStrength, ScanGap = Gap ?? ho.ScanGap, ScanStrength = ScanStrength ?? ho.ScanStrength,
-                        ScanStyle = EnumOr(Style, ho.ScanStyle), ScanScroll = Scroll ?? ho.ScanScroll, Band = Band ?? ho.Band, BandSize = Thickness ?? ho.BandSize,
-                        BandStrength = BandStrength ?? ho.BandStrength, Opacity = Opacity ?? ho.Opacity, Dither = DitherFade ?? ho.Dither, FlickerRate = FlickerRate ?? ho.FlickerRate,
-                        FlickerStrength = FlickerStrength ?? ho.FlickerStrength, GlitchRate = GlitchRate ?? ho.GlitchRate, GlitchShift = Distance ?? ho.GlitchShift,
-                        RgbSplit = RgbSplit ?? ho.RgbSplit, EdgeGlow = EdgeGlow ?? ho.EdgeGlow, EdgeOpacity = EdgeOpacity ?? ho.EdgeOpacity, Seed = Seed ?? ho.Seed,
-                    });
-                default:
-                    return null;
-            }
-        }
-
-        /// <summary>Default stops of the removed gradient map effect ("그라데이션 변화").</summary>
-        private static readonly GradientStop[] LegacyGradientMapStops =
-            [new(0, new Color32(255, 230, 120)), new(1, new Color32(200, 60, 40))];
-
-        /// <summary>
-        /// The removed gradient map effect (type "gradient" with a temporal gradient) becomes a color overlay whose color slot
-        /// holds an animated gradient. Color transition maps exactly to the Uniform shape (same eased, repeated progress).
-        /// Radial rotation maps to the animated Angular shape, which always makes one geometric turn per cycle:
-        /// the old total angle only keeps its direction (negative = clockwise), so angles other than ±360° and the old
-        /// repeat count are approximated by a single turn over the range.
-        /// </summary>
-        private ColorOverlayEffect GradientMap(ColorGradientDto temporal)
-        {
-            var gradient = temporal.ToGradient();
-            if (temporal.Stops is not { Length: > 0 }) gradient = gradient with { Stops = LegacyGradientMapStops };
-            var repeat = EnumOr(Repeat, EffectRepeat.Once);
-            int repeatCount = Math.Clamp(RepeatCount ?? 1, 1, AnimatedEffect.MaxRepeatCount);
-            var easing = EnumOr(Easing, EffectEasing.Linear);
-            bool radial = Mode?.Trim().Equals("RadialRotation", StringComparison.OrdinalIgnoreCase) == true;
-            int angle = Math.Clamp(Angle ?? 360, -1440, 1440);
-            gradient = radial
-                ? gradient with
-                {
-                    Shape = EffectGradientShape.Angular, Animated = true, Angle = 0, Reverse = angle < 0, Cycles = 1,
-                    Easing = easing, PingPong = repeat == EffectRepeat.PingPong,
-                }
-                : gradient with
-                {
-                    Shape = EffectGradientShape.Uniform, Animated = true, Reverse = false,
-                    Cycles = repeat == EffectRepeat.Once ? 1 : repeatCount,
-                    Easing = easing, PingPong = repeat == EffectRepeat.PingPong,
-                };
-            return new ColorOverlayEffect
-            {
-                Enabled = Enabled,
-                Color = gradient.Stops[0].Color,
-                Amount = Amount ?? 100,
-                Blend = EnumOr(Blend, EffectBlend.Normal),
-                ColorGradients = new Dictionary<string, EffectColorGradient>
-                {
-                    [nameof(ColorOverlayEffect.Color)] = gradient,
-                },
-            };
-        }
-
-        /// <summary>움직이는 효과 공통 설정(없으면 그 종류의 기본값).</summary>
-        private AnimatedEffect Animated(AnimatedEffect effect)
-            => effect with { Enabled = Enabled, Easing = EnumOr(Easing, effect.Easing), Repeat = EnumOr(Repeat, effect.Repeat), RepeatCount = RepeatCount ?? effect.RepeatCount };
     }
 
     private sealed class FrameDto

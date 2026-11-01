@@ -281,6 +281,43 @@ public class SkinTests
 
     // ───────────── 저장·읽기 ─────────────
 
+    /// <summary>자동 저장의 사본: 원래 프로젝트를 저장한 것과 같은 파일이 되고, 사본을 만든 뒤 원래 프로젝트를 고쳐도 사본은 그대로다.</summary>
+    [Fact]
+    public void SaveSnapshot_WritesSameFile_AndIgnoresLaterEdits()
+    {
+        using var dir = new TempDir();
+        var (p, g, head, _) = Body();
+        p.AddFrame();
+        p.AddSkin(g, "knight");
+        Paint(p, head, 1, 1, 1, Blue);
+        p.AddTag("walk", 0, 1);
+        p.SetLayerEffects(p.IndexOf(head), [new OutlineEffect { Color = Green }]);
+        var path = dir.File("hero.gpixel");
+
+        static Dictionary<string, string> Entries(SpriteProject project)
+        {
+            using var ms = new MemoryStream();
+            ProjectIO.Save(project, ms);
+            ms.Position = 0;
+            using var zip = new ZipArchive(ms, ZipArchiveMode.Read);
+            return zip.Entries.ToDictionary(e => e.FullName, e =>
+            {
+                using var s = e.Open();
+                using var copy = new MemoryStream();
+                s.CopyTo(copy);
+                return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(copy.ToArray()));
+            });
+        }
+
+        var expected = Entries(p);
+        var snapshot = ProjectIO.SnapshotForSave(p, Path.GetFullPath(path));
+        Assert.Equal(expected, Entries(snapshot));
+
+        Paint(p, head, 0, 1, 0, Green);
+        p.AddFrame();
+        Assert.Equal(expected, Entries(snapshot));
+    }
+
     [Fact]
     public void SaveLoad_RoundTripsSkins_AndOldFilesGetOneDefaultSkin()
     {

@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.IO;
 
 namespace Gpixel.Core.Model;
@@ -59,7 +60,14 @@ public sealed partial class SpriteProject
         }
         foreach (var c in undo) Visit(c);
         foreach (var c in redo) Visit(c);
-        return new UndoHistoryCapture(this, undo, redo, Snapshot.Capture(this), images);
+        var anchor = Snapshot.Capture(this);
+        snapshots.Add(anchor);
+        // 기록의 모든 상태가 쓰는 스크립트 원문(UI 스레드에서 표를 읽음): 새 실행에서 예전 원문의 효과로 되돌려도 그리게 기록에 함께 둔다.
+        var scripts = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var hash in ScriptHashesOf(snapshots.SelectMany(s => s.Effects)))
+            if (ScriptSourceOf(hash) is { } source)
+                scripts[hash] = source;
+        return new UndoHistoryCapture(this, undo, redo, anchor, images, scripts);
     }
 
     /// <summary>기록 사본 → 기록 파일 내용(조각은 <paramref name="blobs"/>에 씀). 아무 스레드에서나(사본만 읽음).</summary>
@@ -103,6 +111,7 @@ public sealed partial class SpriteProject
             {
                 Version = UndoHistoryIO.FormatVersion,
                 Anchor = Snap((Snapshot)capture.Anchor),
+                Scripts = capture.Scripts.Count > 0 ? new SortedDictionary<string, string>(capture.Scripts.ToDictionary(), StringComparer.Ordinal) : null,
                 Undo = capture.Undo.Select(Step).ToList(),
                 Redo = capture.Redo.Select(Step).ToList(),
                 Images = capture.Images.Select(i => new HistoryImageDto
@@ -123,6 +132,14 @@ public sealed partial class SpriteProject
     internal int LoadHistory(HistoryManifestDto m, HistoryBlobs blobs)
     {
         if (_stroke is not null) throw new InvalidOperationException(Gpixel.Core.Localization.DomainStrings.History_CannotReadWhilePainting);
+        // 기록이 담은 스크립트 원문(형식 3부터): 해시가 맞는 것만. 상태를 읽기 전에 앱에 알려야 효과 설정을 지금 원문의 schema로 읽는다.
+        var scripts = new List<string>();
+        foreach (var (hash, source) in m.Scripts ?? new SortedDictionary<string, string>())
+        {
+            if (!Scripting.ScriptLibrary.IsHash(hash) || source is null || Scripting.ScriptEffectProgram.HashOf(source) != hash) throw Corrupt();
+            Scripting.ScriptLibrary.Add(source);
+            scripts.Add(source);
+        }
         var r = new HistoryResolver();
         var sizes = new Dictionary<int, HistoryImageDto>();
         foreach (var i in m.Images)
@@ -217,6 +234,8 @@ public sealed partial class SpriteProject
         var redo = m.Redo.Select(Step).ToList();
 
         foreach (var (key, image) in blanks) _cels[key] = image;
+        // 열려 있는 동안 표에서 빼지 않으므로 되돌린 효과도 원문을 찾고, 그 상태로 저장하면 원문도 함께 저장된다.
+        foreach (var source in scripts) AddScript(source);
         History.Load(undo, redo);
         lock (_historyLock)
         {
@@ -238,6 +257,9 @@ public sealed partial class SpriteProject
     {
         public KeyValuePair<CelKey, PixelImage>[] Cels => _cels;
 
+        /// <summary>이 상태의 모든 레이어 효과.</summary>
+        public IEnumerable<LayerEffect> Effects => _layers.SelectMany(s => s.Effects);
+
         public HistorySnapshotDto ToDto(HistoryIdTable ids) => new()
         {
             W = _w,
@@ -257,7 +279,7 @@ public sealed partial class SpriteProject
                 PartSource = s.PartSourceRect is { } rect ? [rect.X, rect.Y, rect.Width, rect.Height] : null,
                 Skins = s.Skins?.Select(k => new HistorySkinDto { Id = ids.Of(k.Skin), Name = k.Name, Owner = k.Owner is { } o ? ids.Of(o) : 0 }).ToList(),
                 ActiveSkin = s.ActiveSkin is { } active ? ids.Of(active) : 0,
-                Effects = s.Effects.Count > 0 ? s.Effects.Select(ProjectIO.EffectDto.From).ToList() : null,
+                Effects = s.Effects.Count > 0 ? s.Effects.Select(EffectCodec.Write).ToList() : null,
                 AutoLayout = s.AutoLayout is { } layout ? ProjectIO.GroupLayoutDto.From(layout) : null,
             }).ToList(),
             Frames = _frames.Select(f => new HistoryFrameDto
@@ -317,7 +339,7 @@ public sealed partial class SpriteProject
                     l.PartSource is [var sx, var sy, var sw, var sh] ? new Rectangle(sx, sy, sw, sh) : null,
                     l.Skins?.Select(s => (r.Skin(s.Id), s.Name, s.Owner == 0 ? (Layer?)null : r.Layer(s.Owner))).ToArray(),
                     l.ActiveSkin == 0 ? null : r.Skin(l.ActiveSkin),
-                    l.Effects?.Select(e => e.ToEffect()).OfType<LayerEffect>().ToArray() ?? [],
+                    l.Effects?.Select(EffectCodec.Read).ToArray() ?? [],
                     l.AutoLayout?.ToLayout())).ToArray(),
                 _frames = d.Frames.Select(f => (r.Frame(f.Id), f.DurationMs, f.Pivot?.ToPivot(), f.Name)).ToArray(),
                 _tags = d.Tags.Select(t => (r.Tag(t.Id), new AnimationTag(t.Name, t.From, t.To)

@@ -252,10 +252,10 @@ internal static class PixelateShots
         dlg.Close();
         k.Settle(400);
 
-        // ⑥ 편집 > Pixelate current layer…
-        var edit = PixelateKit.OpenMenu(k, main, 1, MainStrings.Menu_Edit_Pixelate);
+        // ⑥ AI > Pixelate current layer…
+        var edit = PixelateKit.OpenMenu(k, main, 5, MainStrings.Menu_Ai_PixelateLayer);
         var er = PixelateKit.PopupBounds(edit, main);
-        var editTop = ShotKit.Bounds(ShotKit.Find<Menu>(main).Items.OfType<MenuItem>().ElementAt(1), main);
+        var editTop = ShotKit.Bounds(ShotKit.Find<Menu>(main).Items.OfType<MenuItem>().ElementAt(5), main);
         var menuRect = PixelateKit.PopupBounds((Control)PixelateKit.LastOpenPopup().Child!, main);
         k.Save(main, "pixelate-open-3", crop: new Rect(Math.Max(0, editTop.X - 40), 0, menuRect.Right + 60 - Math.Max(0, editTop.X - 40), Math.Min(900, Math.Max(er.Bottom + 40, menuRect.Bottom + 12))),
             marks: [er], firstNumber: 6);

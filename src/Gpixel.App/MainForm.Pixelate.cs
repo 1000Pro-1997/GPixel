@@ -6,7 +6,7 @@ using Gpixel.Core.References;
 
 namespace Gpixel.App;
 
-// AI 그림 픽셀로 정리: AI 메뉴(빈 창 — 창에서 끌어 놓기·붙여 넣기·파일 찾기), 파일 브라우저 우클릭(그 파일) 또는 현재 레이어(편집 메뉴)를 원본으로 창을 열고,
+// AI 그림 픽셀로 정리: AI 메뉴(빈 창 — 창에서 끌어 놓기·붙여 넣기·파일 찾기), 파일 브라우저 우클릭(그 파일) 또는 현재 레이어(AI 메뉴)를 원본으로 창을 열고,
 // 고른 후보를 현재 문서의 새 레이어(ImageDrop — 실행취소 한 단계) 또는 새 문서로 넣는다. 고르면 팔레트 저장·AI 참고 자료·AI 다듬기(채팅에 미리 채움)까지.
 public sealed partial class MainForm
 {

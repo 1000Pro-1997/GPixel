@@ -542,42 +542,63 @@ public static class ProjectExport
     public static SheetResult BuildSheet(SpriteProject project, string baseName, bool allFrames = false)
     {
         FrameVariant current = new(null, null, null, null);
-        if (!allFrames && project.Sprite.Mode == SpriteMode.Single) return SingleSheet(project, baseName, current);
-        return FrameSheet(project, baseName, null, null, [current]);
+        var cache = NewCache();
+        if (!allFrames && project.Sprite.Mode == SpriteMode.Single) return SingleSheet(project, baseName, current, null, cache);
+        return FrameSheet(project, baseName, null, null, [current], null, cache);
     }
 
     /// <summary>Single 모드 시트: <see cref="ExportSettings.SingleFrameIndex"/> 프레임 하나를 캔버스 크기 그대로(항목의 착장으로).</summary>
-    private static SheetResult SingleSheet(SpriteProject project, string baseName, FrameVariant variant)
+    private static SheetResult SingleSheet(SpriteProject project, string baseName, FrameVariant variant, WorkStage? stage, EffectRenderCache cache)
     {
         int fi = Math.Clamp(project.Export.SingleFrameIndex, 0, project.Frames.Count - 1);
-        var image = Composite(project, fi, Dress(variant));
+        var image = Composite(project, fi, Dress(variant), cache);
+        stage?.Step(CompositeUnits(project));
         var entry = new SheetEntry(fi, CleanSpriteName(baseName), image.Bounds, project.GetFramePivot(fi), null, Variant: variant);
         return new SheetResult(image, [entry], image.Size);
     }
 
     /// <summary>결과 파일마다의 프레임 시트(스킨 항목·태그마다 나누기 설정대로). 칸 이름은 파일마다 같은 규칙이다.</summary>
     /// <param name="baseName">시트 이름(나누면 파일 이름 앞부분, 칸 이름 <c>{시트 이름}_{프레임}</c>에도 씀).</param>
-    public static IReadOnlyList<SheetFile> BuildFrameSheets(SpriteProject project, string baseName)
+    public static IReadOnlyList<SheetFile> BuildFrameSheets(SpriteProject project, string baseName) => BuildFrameSheets(project, baseName, null, NewCache());
+
+    private static IReadOnlyList<SheetFile> BuildFrameSheets(SpriteProject project, string baseName, WorkStage? stage, EffectRenderCache cache)
         => FrameOutputs(project, baseName)
             .Select(o => new SheetFile(o.Name,
-                project.Sprite.Mode == SpriteMode.Single ? SingleSheet(project, baseName, o.Variants[0]) : FrameSheet(project, baseName, o.Frames, o.Tag, o.Variants),
+                project.Sprite.Mode == SpriteMode.Single ? SingleSheet(project, baseName, o.Variants[0], stage, cache) : FrameSheet(project, baseName, o.Frames, o.Tag, o.Variants, stage, cache),
                 o.Tag, Variant: o.Variants.Count == 1 ? o.Variants[0] : null))
             .ToList();
 
     /// <summary>프레임 하나를 착장을 입혀 합성(내보내기에서 뺀 레이어 제외).</summary>
-    private static PixelImage Composite(SpriteProject project, int frameIndex, Outfit? outfit)
-        => project.FlattenOutfit(frameIndex, outfit, project.Export.Frames.ExcludedLayers);
+    private static PixelImage Composite(SpriteProject project, int frameIndex, Outfit? outfit, EffectRenderCache? cache)
+        => project.FlattenOutfit(frameIndex, outfit, project.Export.Frames.ExcludedLayers, cache);
 
     /// <summary>
     /// 프레임 하나를 프레임 시트 칸과 똑같이(지금 착장, 레이어 효과, 숨긴·내보내기에서 뺀 레이어 제외) 캔버스 크기 그대로 합성 — GIF 등 애니메이션 내보내기용.
+    /// 여러 프레임을 이어 합성하면 같은 <paramref name="cache"/>(<see cref="NewCache"/>)를 넘겨 잔상 원본을 나눠 쓴다.
     /// </summary>
-    public static PixelImage CompositeFrame(SpriteProject project, int frameIndex) => Composite(project, frameIndex, null);
+    public static PixelImage CompositeFrame(SpriteProject project, int frameIndex, EffectRenderCache? cache = null) => Composite(project, frameIndex, null, cache);
+
+    /// <summary>
+    /// 내보내기 한 번 동안 프레임 합성이 나눠 쓰는 효과 캐시(잔상 원본 등). 예산을 넘으면 오래 안 쓴 것부터 버리므로 크기만 정한다.
+    /// </summary>
+    public static EffectRenderCache NewCache() => new(ExportCacheBytes);
+
+    private const long ExportCacheBytes = 256L << 20;
+
+    /// <summary>
+    /// 진행 단위: 픽셀 하나 압축 = 1. 프레임 합성(효과 포함)은 픽셀당 이만큼으로 친다
+    /// (1024², 60프레임, 효과 4개 + 잔상 8개에서 잰 합성 시간 ÷ 시트 압축 시간).
+    /// </summary>
+    private const int CompositeWeight = 2;
+
+    private static long CompositeUnits(SpriteProject project) => (long)project.Width * project.Height * CompositeWeight;
 
     /// <summary>
     /// 프레임 시트 한 장: 스킨 항목 × 프레임(태그 기준이 정렬에 있으면 여러 태그에 든 프레임은 태그마다). <paramref name="frames"/>가 null이면 모든 프레임,
     /// 아니면 그 프레임들(이름 태그 = <paramref name="fileTag"/>). 항목이 여럿이면(한 이미지에 모두) 칸 이름 뒤에 <c>@{항목}</c>.
     /// </summary>
-    private static SheetResult FrameSheet(SpriteProject project, string baseName, IReadOnlyList<int>? frames, AnimationTag? fileTag, IReadOnlyList<FrameVariant> variants)
+    private static SheetResult FrameSheet(SpriteProject project, string baseName, IReadOnlyList<int>? frames, AnimationTag? fileTag, IReadOnlyList<FrameVariant> variants,
+        WorkStage? stage, EffectRenderCache cache)
     {
         var o = project.Export.Frames;
         var (keys, rowBreak) = o.Order.For(hasParts: false);
@@ -616,7 +637,8 @@ public static class ProjectExport
         foreach (var (vi, fi, _, _, _) in cells)
             if (!content.ContainsKey((vi, fi)))
             {
-                var (img, pivot, _) = TrimCel(Composite(project, fi, dresses[vi]), project.GetFramePivot(fi), default, o.Trim);
+                var (img, pivot, _) = TrimCel(Composite(project, fi, dresses[vi], cache), project.GetFramePivot(fi), default, o.Trim);
+                stage?.Step(CompositeUnits(project));
                 content[(vi, fi)] = (img, pivot);
             }
         var cell = new Size(content.Values.Max(c => c.Image.Width), content.Values.Max(c => c.Image.Height));
@@ -809,11 +831,13 @@ public static class ProjectExport
     public static SheetResult BuildPartsSheet(SpriteProject project, string baseName)
     {
         var cels = PartCels(project);
-        return cels.Count == 0 ? EmptySheet() : PartsSheet(project, cels, PartNames(project, cels), whole: true, tagFile: false);
+        return cels.Count == 0 ? EmptySheet() : PartsSheet(project, cels, PartNames(project, cels), whole: true, tagFile: false, stage: null);
     }
 
     /// <summary>결과 파일마다의 부위 아틀라스(부위·태그·스킨마다 나누기 설정대로). 내용 있는 부위가 없으면 빈 시트 한 장.</summary>
-    public static IReadOnlyList<SheetFile> BuildPartsSheets(SpriteProject project, string baseName)
+    public static IReadOnlyList<SheetFile> BuildPartsSheets(SpriteProject project, string baseName) => BuildPartsSheets(project, baseName, null);
+
+    private static IReadOnlyList<SheetFile> BuildPartsSheets(SpriteProject project, string baseName, WorkStage? stage)
     {
         var cels = PartCels(project);
         if (cels.Count == 0) return [new SheetFile(baseName, EmptySheet())];
@@ -824,7 +848,7 @@ public static class ProjectExport
         {
             var idx = Enumerable.Range(0, cels.Count).Where(i => keys[i] == file.Key).ToList();
             var tag = file.Key.Tag >= 0 && file.Key.Tag < project.Tags.Count ? project.Tags[file.Key.Tag] : null;
-            var sheet = PartsSheet(project, idx.Select(i => cels[i]).ToList(), idx.Select(i => names[i]).ToList(), whole: file.Key.Part is null, tagFile: file.Key.Tag >= 0);
+            var sheet = PartsSheet(project, idx.Select(i => cels[i]).ToList(), idx.Select(i => names[i]).ToList(), whole: file.Key.Part is null, tagFile: file.Key.Tag >= 0, stage);
             files.Add(new SheetFile(file.Name, sheet, tag, file.Key.Part, file.Key.SkinName));
         }
         return files;
@@ -834,7 +858,7 @@ public static class ProjectExport
 
     /// <param name="whole">부위마다 나누지 않은 파일이면 "원래 위치 유지"를 쓴다(부위마다 나눈 파일에서는 원래 칸 위치가 뜻이 없음).</param>
     /// <param name="tagFile">태그마다 나눈 파일이면 프레임 자리 값은 파일 안 프레임 순번.</param>
-    private static SheetResult PartsSheet(SpriteProject project, List<PartCel> cels, IReadOnlyList<string> names, bool whole, bool tagFile)
+    private static SheetResult PartsSheet(SpriteProject project, List<PartCel> cels, IReadOnlyList<string> names, bool whole, bool tagFile, WorkStage? stage)
     {
         var o = project.Export.Parts;
         var (keys, rowBreak) = o.Order.For(hasParts: true);
@@ -851,6 +875,7 @@ public static class ProjectExport
             var cel = skin is null ? project.GetCelRaw(part, project.Frames[fi], null) : project.GetSkinCel(part, project.Frames[fi], skin);
             var (image, pivot, border) = PartSprite(project, part, skin, cel!, fi);
             images[i] = TrimCel(image, pivot, border, o.Trim);
+            stage?.Step(PartUnits(cel!));
         }
 
         var values = cels.Select(c =>
@@ -1012,26 +1037,33 @@ public static class ProjectExport
     /// 계획대로 이미지(+ 메타)와 Sprite Library(+ 메타)를 쓴다. 기존 메타의 guid·spriteID·internalID는 파일마다 칸 이름 기준으로 유지되고,
     /// Sprite Library는 방금 쓴 부위 아틀라스 메타의 guid·internalID로 스프라이트를 가리킨다. 기록은 바꾸지 않는다.
     /// </summary>
-    public static ProjectExportResult Write(SpriteProject project, ExportPlan plan)
+    /// <param name="progress">진행(합성 → 이미지 쓰기). 시작할 때 <see cref="EstimateWork"/>만큼 단계를 잡는다.</param>
+    public static ProjectExportResult Write(SpriteProject project, ExportPlan plan, WorkProgress? progress = null)
+    {
+        using var stage = progress?.Begin(EstimateWork(project, plan));
+        return Write(project, plan, stage);
+    }
+
+    internal static ProjectExportResult Write(SpriteProject project, ExportPlan plan, WorkStage? stage)
     {
         var export = project.Export;
         var frames = new List<ExportResult>();
         if (plan.FramePaths.Count > 0)
         {
             bool multiple = project.Sprite.Mode == SpriteMode.Multiple;
-            var sheets = BuildFrameSheets(project, Path.GetFileNameWithoutExtension(GetExportImagePath(export, plan.ProjectPath)));
+            var sheets = BuildFrameSheets(project, Path.GetFileNameWithoutExtension(GetExportImagePath(export, plan.ProjectPath)), stage, NewCache());
             for (int i = 0; i < sheets.Count; i++)
-                frames.Add(WriteDocument(plan.FramePaths[i], FrameDocument(project, sheets[i].Sheet, multiple), project, ShouldWriteMeta(project, plan.FramePaths[i])));
+                frames.Add(WriteDocument(plan.FramePaths[i], FrameDocument(project, sheets[i].Sheet, multiple), project, ShouldWriteMeta(project, plan.FramePaths[i]), stage));
         }
         var parts = new List<ExportResult>();
         var sprites = new Dictionary<(Layer Part, int Frame, Skin? Skin), SpriteLibraryAssetWriter.SpriteRef>();
         if (plan.PartPaths.Count > 0)
         {
-            var sheets = BuildPartsSheets(project, Path.GetFileNameWithoutExtension(GetPartsImagePath(export, plan.ProjectPath)));
+            var sheets = BuildPartsSheets(project, Path.GetFileNameWithoutExtension(GetPartsImagePath(export, plan.ProjectPath)), stage);
             for (int i = 0; i < sheets.Count; i++)
             {
                 var path = plan.PartPaths[i];
-                var result = WriteDocument(path, PartsDocument(project, sheets[i].Sheet), project, ShouldWritePartsMeta(project, path));
+                var result = WriteDocument(path, PartsDocument(project, sheets[i].Sheet), project, ShouldWritePartsMeta(project, path), stage);
                 parts.Add(result);
                 if (plan.LibraryPaths.Count == 0 || !result.MetaWritten || UnityMeta.TryRead(UnityMeta.GetMetaPath(path)) is not { Guid: { } guid } meta) continue;
                 var ids = meta.Sprites.GroupBy(s => s.Name).ToDictionary(g => g.Key, g => g.First().InternalId);
@@ -1087,25 +1119,58 @@ public static class ProjectExport
     }
 
     /// <summary>
-    /// 켜진 것을 지금 경로 기준으로 내보낸다(<see cref="Plan"/> → 기록 갱신 → <see cref="Write"/>). 기록이 바뀌면 프로젝트를 수정됨으로 둔다
+    /// 내보내기 진행의 전체 단위(<see cref="Write"/>가 잡는 단계): 합성할 프레임·부위 셀마다 합성 몫 + 결과 이미지에 들어갈 만큼의 압축 몫.
+    /// 잘라내기·여백으로 실제 시트 크기와는 다르다 — 남는 몫은 단계 끝에 채운다.
+    /// </summary>
+    public static long EstimateWork(SpriteProject project, ExportPlan plan)
+    {
+        long px = (long)project.Width * project.Height, units = 0;
+        if (plan.FramePaths.Count > 0)
+        {
+            bool single = project.Sprite.Mode == SpriteMode.Single;
+            foreach (var o in FrameOutputs(project, "sprite"))
+                units += (single ? 1 : (long)(o.Frames?.Count ?? project.Frames.Count) * o.Variants.Count) * (CompositeUnits(project) + px);
+        }
+        if (plan.PartPaths.Count > 0)
+            foreach (var (part, _, _) in PartCels(project))
+            {
+                var size = project.CelSize(part);
+                long cel = (long)size.Width * size.Height;
+                units += cel * CompositeWeight + cel;
+            }
+        return Math.Max(1, units);
+    }
+
+    /// <summary>부위 셀 하나(효과 포함)를 그리는 몫.</summary>
+    private static long PartUnits(PixelImage cel) => (long)cel.Width * cel.Height * CompositeWeight;
+
+    /// <summary>
+    /// 켜진 것을 지금 경로 기준으로 내보낸다(<see cref="BeginExport"/> → <see cref="Write"/>). 기록이 바뀌면 프로젝트를 수정됨으로 둔다
     /// (다음 저장 때 <c>.gpixel</c>에 들어감). 옛 결과는 <see cref="ProjectExportResult.Stale"/>로 돌려준다(지우지 않음).
     /// </summary>
-    public static ProjectExportResult Export(SpriteProject project)
+    public static ProjectExportResult Export(SpriteProject project) => Write(project, BeginExport(project));
+
+    /// <summary>
+    /// 내보내기 준비(UI 스레드): 지금 경로 기준 계획을 세우고 기록을 갱신한다(바뀌면 수정됨). 그다음 <see cref="Write"/>는 프로젝트를 읽기만 하므로
+    /// 아무도 프로젝트를 고치지 않는 동안 작업 스레드에서 돌려도 된다.
+    /// </summary>
+    public static ExportPlan BeginExport(SpriteProject project)
     {
         var plan = Plan(project, RequirePath(project, null));
         if (!SameRecord(project.ExportedFiles, plan.Record)) project.IsDirty = true;
         project.ExportedFiles = plan.Record;
-        return Write(project, plan);
+        return plan;
     }
 
     private static bool SameRecord(IReadOnlyList<string>? a, IReadOnlyList<string> b)
         => a is not null && a.Count == b.Count && a.Zip(b).All(p => string.Equals(p.First, p.Second, StringComparison.OrdinalIgnoreCase));
 
-    private static ExportResult WriteDocument(string path, Document doc, SpriteProject project, bool writeMeta)
+    private static ExportResult WriteDocument(string path, Document doc, SpriteProject project, bool writeMeta, WorkStage? stage)
     {
         var dir = Path.GetDirectoryName(path);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-        DocumentIO.Save(doc, path, writeMeta, project.Export.ImageFormat, project.Export.JpegQuality);
+        using (var write = stage?.Sub((long)doc.Image.Width * doc.Image.Height))
+            DocumentIO.Save(doc, path, writeMeta, project.Export.ImageFormat, project.Export.JpegQuality, write);
         return new ExportResult(path, writeMeta, Math.Max(1, doc.Slices.Count));
     }
 }

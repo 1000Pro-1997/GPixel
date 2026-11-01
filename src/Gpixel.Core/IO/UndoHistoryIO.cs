@@ -2,6 +2,7 @@ using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Gpixel.Core.Edit;
 using Gpixel.Core.Model;
 
@@ -10,7 +11,8 @@ namespace Gpixel.Core.IO;
 /// <summary>
 /// 실행취소 기록 파일(문서 하나 = 폴더 하나). 프로젝트 파일(<c>.gpixel</c>)과 따로 두고, 그 파일에 저장된 상태(= 지금 상태)를 기준으로 읽는다.
 /// <list type="bullet">
-/// <item><c>history.json.gz</c>: 형식 버전, 기준 상태(<c>anchor</c>), 셀 그림 목록, 실행취소 목록(오래된 것부터), 다시 실행 목록(먼 것부터).
+/// <item><c>history.json.gz</c>: 형식 버전, 기준 상태(<c>anchor</c>), 셀 그림 목록, 실행취소 목록(오래된 것부터), 다시 실행 목록(먼 것부터),
+/// 기록의 상태들이 쓰는 스크립트 원문(<c>scripts</c>, 형식 3부터 — 프로젝트 파일은 지금 효과가 쓰는 원문만 저장하므로).
 /// 단계는 <c>snapshot</c>(구조 변경 앞뒤 상태), <c>stroke</c>(셀 하나의 픽셀 패치), <c>group</c>(여러 단계를 한 단계로).</item>
 /// <item><c>blobs/{해시}</c>: 내용 주소 저장소(zlib 압축, 이름 = 압축 전 내용의 SHA-256 앞 32자). 구조 상태 JSON·픽셀 패치·셀 그림이 들어가며,
 /// 같은 내용은 한 번만 저장된다(구조 단계 1000개가 같은 셀을 가리켜도 그림은 하나).</item>
@@ -20,7 +22,11 @@ namespace Gpixel.Core.IO;
 /// </summary>
 public static class UndoHistoryIO
 {
-    public const int FormatVersion = 1;
+    /// <summary>
+    /// 3 = 기록의 상태들이 쓰는 스크립트 원문(<c>scripts</c>: 해시 → 원문)을 함께 담는 판. 2 = 레이어 효과를 프로젝트 형식 4와 같은 JSON
+    /// (<see cref="Effects.EffectCodec"/>)으로 쓰는 판. 1·2판도 읽는다(원문 없음 — 프로젝트 표에 없는 원문의 효과는 원문 없음으로 남음).
+    /// </summary>
+    public const int FormatVersion = 3;
     public const string ManifestName = "history.json.gz";
     public const string BlobFolder = "blobs";
 
@@ -60,7 +66,7 @@ public static class UndoHistoryIO
         {
             throw new InvalidDataException(Gpixel.Core.Localization.DomainStrings.FormatHistory_CorruptMessage(error: ex.Message), ex);
         }
-        if (manifest.Version != FormatVersion)
+        if (manifest.Version is < 1 or > FormatVersion)
             throw new InvalidDataException(Gpixel.Core.Localization.DomainStrings.FormatHistory_UnsupportedVersion(version: manifest.Version));
         return project.LoadHistory(manifest, new HistoryBlobs(directory));
     }
@@ -209,8 +215,9 @@ public readonly record struct UndoHistoryWriteResult(int UndoSteps, int RedoStep
 public sealed class UndoHistoryCapture
 {
     internal UndoHistoryCapture(SpriteProject project, List<IUndoCommand> undo, List<IUndoCommand> redo, object anchor,
-        List<(PixelImage Image, Color32[]? Pixels)> images)
+        List<(PixelImage Image, Color32[]? Pixels)> images, IReadOnlyDictionary<string, string> scripts)
     {
+        Scripts = scripts;
         Project = project;
         Undo = undo;
         Redo = redo;
@@ -225,6 +232,8 @@ public sealed class UndoHistoryCapture
     internal object Anchor { get; }
     /// <summary>기록이 가리키는 셀 그림: 지금 프로젝트에 있는 것(내용은 프로젝트 파일에 있음, null)과 없는 것(지금 내용 사본).</summary>
     internal List<(PixelImage Image, Color32[]? Pixels)> Images { get; }
+    /// <summary>기록의 상태(기준 상태 포함)가 쓰는 스크립트 원문(해시 → 원문, 뜰 때 원문을 아는 것).</summary>
+    internal IReadOnlyDictionary<string, string> Scripts { get; }
 
     public int UndoCount => Undo.Count;
     public int RedoCount => Redo.Count;
@@ -300,6 +309,8 @@ internal sealed class HistoryManifestDto
     public List<HistoryImageDto> Images { get; set; } = [];
     public List<HistoryStepDto> Undo { get; set; } = [];
     public List<HistoryStepDto> Redo { get; set; } = [];
+    /// <summary>스크립트 원문(해시 → 원문, 형식 3부터, 없으면 null).</summary>
+    public SortedDictionary<string, string>? Scripts { get; set; }
 }
 
 /// <summary>셀 그림: 번호·크기. <see cref="Blob"/>이 없으면 지금 프로젝트(기준 상태)의 셀.</summary>
@@ -365,7 +376,7 @@ internal sealed class HistoryLayerDto
     /// <summary>그룹만(아니면 null).</summary>
     public List<HistorySkinDto>? Skins { get; set; }
     public int ActiveSkin { get; set; }
-    public List<ProjectIO.EffectDto>? Effects { get; set; }
+    public List<JsonObject>? Effects { get; set; }
     public ProjectIO.GroupLayoutDto? AutoLayout { get; set; }
 }
 

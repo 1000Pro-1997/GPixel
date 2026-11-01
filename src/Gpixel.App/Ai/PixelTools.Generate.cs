@@ -275,6 +275,8 @@ public sealed partial class PixelTools
             if (Scope is { } scope && !ReferenceEquals(Ctx.Project, scope.Project)) throw new ToolError(UiStrings.Ai_Scope_OtherDocument);
             if (!newDocument && Ctx.Project is null) newDocument = true;
             int duration = AiDrawActions.DurationMs(animation);
+            // 기다리는 동안 저장·열기 덮개가 떴으면(작업 스레드가 프로젝트를 읽는 중) 끝난 뒤에 넣는다.
+            while (WorkOverlay.IsActive) await WorkOverlay.WhenIdle();
             if (!_host.InsertPixelArt(name, outFrames, duration, newDocument, out var message)) throw new ToolError(message);
 
             var job = new AiDrawJob

@@ -10,24 +10,34 @@ internal static class BlinkRender
     {
         if (!e.Hidden) return;
         var px = image.Pixels;
+        int w = image.Width, h = image.Height;
         switch (e.Hide)
         {
             case BlinkHide.Transparent:
                 Array.Clear(px);
                 break;
             case BlinkHide.Translucent:
-                for (int i = 0; i < px.Length; i++)
+                EffectParallel.For(0, h, w, y =>
                 {
-                    if (px[i].A == 0) continue;
-                    byte a = (byte)((px[i].A * e.Opacity + 50) / 100);
-                    px[i] = a == 0 ? Color32.Transparent : px[i].WithAlpha(a);
-                }
+                    var row = px.AsSpan(y * w, w);
+                    int opacity = e.Opacity;
+                    for (int x = 0; x < row.Length; x++)
+                    {
+                        var c = row[x];
+                        if (c.A == 0) continue;
+                        byte a = (byte)((c.A * opacity + 50) / 100);
+                        row[x] = a == 0 ? Color32.Transparent : c.WithAlpha(a);
+                    }
+                });
                 break;
             default:
-                int w = image.Width, h = image.Height;
-                for (int y = 0; y < h; y++)
-                    for (int x = 0; x < w; x++)
-                        if (((x - source.X + y - source.Y) & 1) != 0) px[y * w + x] = Color32.Transparent;
+                EffectParallel.For(0, h, w, y =>
+                {
+                    var row = px.AsSpan(y * w, w);
+                    int offset = y - source.Y - source.X;
+                    for (int x = 0; x < row.Length; x++)
+                        if (((x + offset) & 1) != 0) row[x] = Color32.Transparent;
+                });
                 break;
         }
     }

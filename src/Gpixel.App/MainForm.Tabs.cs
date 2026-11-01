@@ -340,6 +340,7 @@ public sealed partial class MainForm
     /// </summary>
     private bool ReloadDocument(OpenDocument doc, string path, bool interactive, out string message)
     {
+        FinishAutoSave(); // 자동 저장이 이 파일을 쓰는 중이면 끝난 뒤의 파일을 읽는다
         if (ReadProject(path, interactive, out message) is not { } result) return false;
         if (!result.Imported) _history.Restore(result.Project);
         doc.SourcePath = result.Imported ? result.SourcePngPath : null;

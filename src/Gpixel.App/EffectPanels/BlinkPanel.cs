@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,12 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi BlinkUi => EffectUi.For<BlinkEffect>(BlinkDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_510993AD9E, UiStrings.S_LayerEffectsDialog_KindTable_4E942C831D,
+        Avalonia.Media.Color.FromRgb(200, 170, 255), (dialog, e, set) => dialog.BlinkPanel(e, set),
+        blink => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_0080B38202) + (blink.Timing == BlinkTiming.Frames ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_855D00FD34,blink.OnFrames,blink.OffFrames) : string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_7D1229802B,blink.Count))
+            + $" · {BlinkHides[(int)blink.Hide]}");
+
     private static readonly string[] BlinkHides = [UiStrings.S_BlinkPanel_BlinkHides_C91D2F76FA, UiStrings.S_BlinkPanel_BlinkHides_E8E64BF447, UiStrings.S_BlinkPanel_BlinkHides_0C5348FA14];
 
     /// <summary>깜빡이기 설정: 간격(프레임 수 / 범위 안 횟수), 숨김 방식(+ 반투명 불투명도).</summary>

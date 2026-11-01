@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi AfterimageUi => EffectUi.For<AfterimageEffect>(AfterimageDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_C41906B546, UiStrings.S_LayerEffectsDialog_KindTable_69C80DA119,
+        Avalonia.Media.Color.FromRgb(40, 190, 160), (dialog, e, set) => dialog.AfterimagePanel(e, set),
+        after => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_4BF321B781,after.Count,after.Interval,after.Opacity) + (after.Tint ? $" · {after.TintColor.ToHex()}" : ""));
+
     /// <summary>잔상 설정: 개수, 간격, 불투명도, 색 입히기.</summary>
     private void AfterimagePanel(AfterimageEffect e, Action<Func<LayerEffect, LayerEffect>> set)
     {

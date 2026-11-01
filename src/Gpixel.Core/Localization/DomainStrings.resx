@@ -29,6 +29,7 @@
   <data name="Effect_ColorCycle" xml:space="preserve"><value>색 순환</value></data>
   <data name="Effect_HitFlash" xml:space="preserve"><value>피격 번쩍임</value></data>
   <data name="Effect_Hologram" xml:space="preserve"><value>홀로그램</value></data>
+  <data name="Effect_Missing" xml:space="preserve"><value>알 수 없는 효과</value></data>
   <data name="Effect_InnerGlow" xml:space="preserve"><value>안쪽 빛</value></data>
   <data name="Effect_Melt" xml:space="preserve"><value>녹아내리기</value></data>
   <data name="Effect_PaletteSwap" xml:space="preserve"><value>색 바꾸기</value></data>
@@ -104,7 +105,7 @@
   <data name="Project_CellReadFailed" xml:space="preserve"><value>셀을 읽지 못해 비웠습니다({name}): {error}</value><comment>name = 셀 경로; error = 셀 읽기 오류 메시지.</comment></data>
   <data name="Project_CellResized" xml:space="preserve"><value>셀 크기가 맞지 않아 왼쪽 위에 맞췄습니다: {name}</value><comment>name = 잘못된 크기의 셀 경로.</comment></data>
   <data name="Project_CombinedLayers" xml:space="preserve"><value>예전 아틀라스의 레이어 {count}개를 부위마다 한 장으로 합쳤습니다(보이는 레이어만).</value><comment>count = 예전 아틀라스에서 내용이 있던 레이어 수.</comment></data>
-  <data name="Project_UnknownEffect" xml:space="preserve"><value>레이어 "{layer}"의 알 수 없는 효과({type})를 건너뛰었습니다.</value><comment>layer = 레이어 이름; type = 읽을 수 없는 효과 형식 ID.</comment></data>
+  <data name="Project_UnknownEffect" xml:space="preserve"><value>레이어 "{layer}"의 알 수 없는 효과({type})는 그리지 않습니다. 저장하면 그대로 남습니다.</value><comment>layer = 레이어 이름; type = 읽을 수 없는 효과 형식 ID.</comment></data>
   <data name="Project_RepairedHierarchy" xml:space="preserve"><value>레이어 그룹 구조가 잘못되어 고쳤습니다.</value></data>
   <data name="Project_MigratedLegacyOutfit" xml:space="preserve"><value>예전 "지금 착장 + 착장 프리셋" 프레임 시트 설정을 "고른 스킨"으로 옮겼습니다 — 지금 착장 파일(이름 그대로)은 더 만들지 않습니다. 필요하면 지금 착장을 착장으로 저장해 고르세요.</value></data>
   <data name="Merge_NoFrames" xml:space="preserve"><value>프레임이 없습니다.</value></data>
@@ -209,6 +210,7 @@
   <data name="Project_ExtendFrames" xml:space="preserve"><value>프레임 늘리기</value></data>
   <data name="Project_CannotDeleteLastFrame" xml:space="preserve"><value>마지막 프레임은 삭제할 수 없습니다.</value></data>
   <data name="Project_DeleteFrame" xml:space="preserve"><value>프레임 삭제</value></data>
+  <data name="Project_DeleteFrames" xml:space="preserve"><value>프레임 여러 개 삭제</value></data>
   <data name="Project_MoveFrame" xml:space="preserve"><value>프레임 이동</value></data>
   <data name="Project_FrameDuration" xml:space="preserve"><value>프레임 길이</value></data>
   <data name="Project_FramePivot" xml:space="preserve"><value>프레임 피벗</value></data>
@@ -228,4 +230,115 @@
   <data name="Project_InvalidPartSize" xml:space="preserve"><value>부위 크기는 1~{max} 사이여야 합니다: {width}x{height}</value><comment>max = 최대 축 크기; width, height = 입력 부위 크기.</comment></data>
   <data name="Project_UnsavableEffect" xml:space="preserve"><value>저장할 수 없는 효과: {type}</value><comment>type = 직렬화할 수 없는 효과의 .NET 타입 이름.</comment></data>
   <data name="Import_NoDocument" xml:space="preserve"><value>가져올 문서가 없습니다.</value></data>
+  <data name="Script_SyntaxError" xml:space="preserve"><value>문법 오류: {detail}</value><comment>detail = JS 해석기가 알려 준 원인(영어).</comment></data>
+  <data name="Script_RuntimeError" xml:space="preserve"><value>실행 오류: {detail}</value><comment>detail = 스크립트가 던진 오류 문구.</comment></data>
+  <data name="Script_Timeout" xml:space="preserve"><value>실행 시간이 {seconds}초를 넘어 멈췄습니다.</value><comment>seconds = 호출 한 번의 시간 한도.</comment></data>
+  <data name="Script_StatementLimit" xml:space="preserve"><value>실행한 문장이 {count}개를 넘어 멈췄습니다.</value><comment>count = 호출 한 번의 문장 수 한도.</comment></data>
+  <data name="Script_MemoryLimit" xml:space="preserve"><value>메모리를 너무 많이 써서 멈췄습니다(호출 한 번에 {megabytes}MB, 배열은 {length}칸까지).</value><comment>megabytes = 호출 한 번의 할당 한도; length = 배열 한 개의 최대 칸 수.</comment></data>
+  <data name="Script_RecursionLimit" xml:space="preserve"><value>함수 호출이 {depth}단계보다 깊어져 멈췄습니다.</value><comment>depth = 함수 호출 깊이 한도.</comment></data>
+  <data name="Script_NoEffect" xml:space="preserve"><value>effect(...) 선언이 없습니다.</value></data>
+  <data name="Script_DuplicateEffect" xml:space="preserve"><value>effect(...)는 한 번만 부를 수 있습니다.</value></data>
+  <data name="Script_DeclarationNotObject" xml:space="preserve"><value>effect에는 효과 정보를 담은 객체를 넘겨야 합니다.</value></data>
+  <data name="Script_InvalidName" xml:space="preserve"><value>name에 효과 이름(비어 있지 않은 문자열)이 필요합니다.</value></data>
+  <data name="Script_InvalidAnimated" xml:space="preserve"><value>animated는 true나 false여야 합니다.</value></data>
+  <data name="Script_InvalidArea" xml:space="preserve"><value>area는 "global"이나 "local"이어야 합니다.</value></data>
+  <data name="Script_InvalidRadius" xml:space="preserve"><value>area가 "local"이면 radius에 0~{max} 정수가 필요합니다.</value><comment>max = 반경 최대 px.</comment></data>
+  <data name="Script_MissingRender" xml:space="preserve"><value>render(img, ctx, s) 함수가 필요합니다.</value></data>
+  <data name="Script_InvalidPadding" xml:space="preserve"><value>padding은 [왼, 위, 오른, 아래] 배열이나 그 배열을 돌려주는 함수여야 하고, 값은 0~{max} 정수입니다.</value><comment>max = 여백 한 쪽의 최대 px.</comment></data>
+  <data name="Script_InvalidSettings" xml:space="preserve"><value>settings는 배열이어야 합니다.</value></data>
+  <data name="Script_InvalidSetting" xml:space="preserve"><value>settings[{index}]는 객체여야 합니다.</value><comment>index = 설정 목록 안 번호(0부터).</comment></data>
+  <data name="Script_InvalidSettingKey" xml:space="preserve"><value>settings[{index}]의 key는 영문자나 _로 시작하고 영문자, 숫자, _만 쓴 이름이어야 합니다.</value><comment>index = 설정 목록 안 번호(0부터).</comment></data>
+  <data name="Script_DuplicateSettingKey" xml:space="preserve"><value>설정 key가 겹칩니다: {key}</value><comment>key = 겹친 설정 키.</comment></data>
+  <data name="Script_InvalidSettingLabel" xml:space="preserve"><value>설정 {key}의 label은 문자열이어야 합니다.</value><comment>key = 설정 키.</comment></data>
+  <data name="Script_InvalidSettingType" xml:space="preserve"><value>설정 {key}의 type은 int, number, bool, color, choice 중 하나여야 합니다.</value><comment>key = 설정 키.</comment></data>
+  <data name="Script_InvalidSettingRange" xml:space="preserve"><value>설정 {key}의 min, max, step이 잘못되었습니다(숫자, min ≤ max, step &gt; 0, int는 정수).</value><comment>key = 설정 키.</comment></data>
+  <data name="Script_InvalidSettingDefault" xml:space="preserve"><value>설정 {key}의 default가 type에 맞지 않거나 범위를 벗어납니다.</value><comment>key = 설정 키.</comment></data>
+  <data name="Script_InvalidSettingChoices" xml:space="preserve"><value>설정 {key}의 choices는 값이 겹치지 않는 문자열이나 value, label을 가진 객체 목록이어야 합니다.</value><comment>key = 설정 키.</comment></data>
+  <data name="Script_InvalidImageData" xml:space="preserve"><value>img.data는 길이 {length}인 숫자 배열이어야 합니다({index}번째 값이 잘못됨).</value><comment>length = 배열 길이; index = 잘못된 칸 번호(0부터).</comment></data>
+  <data name="Script_ImageTooLarge" xml:space="preserve"><value>그림이 너무 커서 스크립트 효과로 계산할 수 없습니다: {width}x{height}</value><comment>width, height = 그림 크기.</comment></data>
+  <data name="Script_InvalidBlankSize" xml:space="preserve"><value>img.blank의 가로세로는 1~{max} 정수이고 픽셀은 {pixels}개까지입니다.</value><comment>max = 축 최대 크기; pixels = 최대 픽셀 수.</comment></data>
+  <data name="Script_InvalidImageArgument" xml:space="preserve"><value>img.blank나 ctx.frameSource로 만든 그림이 필요합니다.</value></data>
+  <data name="Script_UnknownColorSetting" xml:space="preserve"><value>색 설정이 아닙니다: {key}</value><comment>key = ctx.color에 넘긴 키.</comment></data>
+  <data name="Asset_Issue_PackageTooLarge" xml:space="preserve"><value>패키지 파일이 너무 큽니다(최대 {detail}바이트).</value></data>
+  <data name="Asset_Issue_NotZip" xml:space="preserve"><value>ZIP 패키지로 읽을 수 없습니다.</value></data>
+  <data name="Asset_Issue_TooManyFiles" xml:space="preserve"><value>패키지 안 파일이 너무 많습니다(최대 {detail}개).</value></data>
+  <data name="Asset_Issue_FileTooLarge" xml:space="preserve"><value>파일이 너무 큽니다(최대 {detail}바이트).</value></data>
+  <data name="Asset_Issue_ExpandedTooLarge" xml:space="preserve"><value>압축을 푼 전체 크기가 너무 큽니다(최대 {detail}바이트).</value></data>
+  <data name="Asset_Issue_InvalidPath" xml:space="preserve"><value>쓸 수 없는 경로입니다.</value></data>
+  <data name="Asset_Issue_AbsolutePath" xml:space="preserve"><value>절대 경로는 쓸 수 없습니다.</value></data>
+  <data name="Asset_Issue_PathEscape" xml:space="preserve"><value>'..'이나 '.'로 다른 곳을 가리키는 경로는 쓸 수 없습니다.</value></data>
+  <data name="Asset_Issue_DuplicatePath" xml:space="preserve"><value>같은 경로가 두 번 있습니다.</value></data>
+  <data name="Asset_Issue_CaseConflict" xml:space="preserve"><value>대소문자만 다른 경로가 이미 있습니다.</value></data>
+  <data name="Asset_Issue_SpecialFile" xml:space="preserve"><value>symlink 같은 특수 파일은 넣을 수 없습니다.</value></data>
+  <data name="Asset_Issue_DisallowedFile" xml:space="preserve"><value>이 자리에 둘 수 없는 파일입니다. {detail}</value></data>
+  <data name="Asset_Issue_UnlistedFile" xml:space="preserve"><value>manifest에 적히지 않은 파일입니다.</value></data>
+  <data name="Asset_Issue_MissingFile" xml:space="preserve"><value>manifest에 적혔지만 패키지에 없는 파일입니다. {detail}</value></data>
+  <data name="Asset_Issue_HashMismatch" xml:space="preserve"><value>파일 SHA-256이 manifest와 다릅니다.</value></data>
+  <data name="Asset_Issue_MissingManifest" xml:space="preserve"><value>manifest.json이 없습니다.</value></data>
+  <data name="Asset_Issue_InvalidJson" xml:space="preserve"><value>JSON으로 읽을 수 없거나 모양이 틀렸습니다.</value></data>
+  <data name="Asset_Issue_JsonTooDeep" xml:space="preserve"><value>JSON이 너무 깊습니다(최대 {detail}단계).</value></data>
+  <data name="Asset_Issue_StringTooLong" xml:space="preserve"><value>JSON 글자가 너무 깁니다(최대 {detail}자).</value></data>
+  <data name="Asset_Issue_FutureSchema" xml:space="preserve"><value>이 앱보다 새 형식(schema {detail})입니다. Gpixel을 업데이트하세요.</value></data>
+  <data name="Asset_Issue_InvalidField" xml:space="preserve"><value>값이 없거나 틀렸습니다: {detail}</value></data>
+  <data name="Asset_Issue_AppTooOld" xml:space="preserve"><value>Gpixel {detail} 이상이 필요합니다.</value></data>
+  <data name="Asset_Issue_UnknownKind" xml:space="preserve"><value>모르는 에셋 종류입니다: {detail}</value></data>
+  <data name="Asset_Issue_DuplicateAssetId" xml:space="preserve"><value>에셋 ID가 겹칩니다: {detail}</value></data>
+  <data name="Asset_Issue_UnknownEffect" xml:space="preserve"><value>이 앱에 없는 효과입니다: {detail}</value></data>
+  <data name="Asset_Issue_InvalidEffectSetting" xml:space="preserve"><value>효과 설정이 schema에 맞지 않습니다: {detail}</value></data>
+  <data name="Asset_Issue_TooManyItems" xml:space="preserve"><value>항목이 너무 많습니다: {detail}</value></data>
+  <data name="Asset_Issue_InvalidPreview" xml:space="preserve"><value>미리보기 PNG를 읽을 수 없습니다.</value></data>
+  <data name="Asset_Issue_PreviewTooLarge" xml:space="preserve"><value>미리보기 그림이 너무 큽니다(최대 {detail}).</value></data>
+  <data name="Asset_Issue_VersionConflict" xml:space="preserve"><value>같은 버전이 다른 내용으로 이미 설치되어 있습니다: {detail}</value></data>
+  <data name="Effect_Script" xml:space="preserve"><value>스크립트 효과</value></data>
+  <data name="Script_InvalidAuthor" xml:space="preserve"><value>author는 문자열이어야 합니다.</value></data>
+  <data name="Script_ReservedSettingKey" xml:space="preserve"><value>설정 key로 {key}는 쓸 수 없습니다({keys}는 효과의 움직임 설정이 씁니다).</value><comment>key = 설정 키; keys = 쓸 수 없는 키 목록.</comment></data>
+  <data name="Project_BadScript" xml:space="preserve"><value>스크립트 표의 원문이 해시와 맞지 않아 읽지 않았습니다: {hash}</value><comment>hash = 원문 해시 앞 12자.</comment></data>
+  <data name="Project_MissingScript" xml:space="preserve"><value>레이어 "{layer}"의 스크립트 효과 원문이 파일에 없어 그리지 않습니다({hash}). 저장하면 효과는 그대로 남습니다.</value><comment>layer = 레이어 이름; hash = 원문 해시 앞 12자.</comment></data>
+  <data name="Remote_Issue_Network" xml:space="preserve"><value>온라인 에셋 목록에 연결하지 못했습니다: {detail}</value></data>
+  <data name="Remote_Issue_Timeout" xml:space="preserve"><value>서버 응답이 너무 늦습니다.</value></data>
+  <data name="Remote_Issue_HttpStatus" xml:space="preserve"><value>서버가 오류를 돌려주었습니다(HTTP {detail}).</value></data>
+  <data name="Remote_Issue_InvalidIndex" xml:space="preserve"><value>온라인 에셋 목록을 읽을 수 없습니다(틀린 값: {detail}).</value></data>
+  <data name="Remote_Issue_FutureSchema" xml:space="preserve"><value>온라인 에셋 목록이 이 Gpixel보다 새 형식입니다(schema {detail}). Gpixel을 업데이트하세요.</value></data>
+  <data name="Remote_Issue_NotHttps" xml:space="preserve"><value>HTTPS가 아니거나 목록과 다른 사이트의 주소라 받지 않았습니다: {detail}</value></data>
+  <data name="Remote_Issue_TooLarge" xml:space="preserve"><value>받은 파일이 크기 한도({detail}바이트)를 넘습니다.</value></data>
+  <data name="Remote_Issue_SizeMismatch" xml:space="preserve"><value>받은 파일의 크기가 목록과 다릅니다: {detail}</value></data>
+  <data name="Remote_Issue_HashMismatch" xml:space="preserve"><value>받은 패키지의 SHA-256이 목록과 달라 설치하지 않았습니다: {detail}</value></data>
+  <data name="Remote_Incompatible_AppTooOld" xml:space="preserve"><value>Gpixel {0} 이상이 필요합니다(지금 {1}).</value></data>
+  <data name="Remote_Incompatible_UnknownKind" xml:space="preserve"><value>이 버전의 Gpixel이 쓸 수 없는 에셋 종류가 들어 있습니다: {0}</value></data>
+  <data name="CatalogBuild_UnexpectedFile" xml:space="preserve"><value>카탈로그 원본에 둘 수 없는 파일이나 폴더입니다.</value></data>
+  <data name="CatalogBuild_PackageCount" xml:space="preserve"><value>제출 폴더에는 .gpixel-asset 파일이 하나만 있어야 합니다(지금 {detail}개).</value></data>
+  <data name="CatalogBuild_InvalidPackage" xml:space="preserve"><value>패키지 검사 실패 — {detail}</value></data>
+  <data name="CatalogBuild_FolderMismatch" xml:space="preserve"><value>폴더 이름이 패키지 ID({detail})와 다릅니다.</value></data>
+  <data name="CatalogBuild_AuthorMismatch" xml:space="preserve"><value>패키지 ID의 첫 조각이 작성자 ID({detail})와 다릅니다.</value></data>
+  <data name="CatalogBuild_MissingAuthor" xml:space="preserve"><value>공개 작성자 정보가 없습니다(개인 내보내기 패키지는 올릴 수 없습니다).</value></data>
+  <data name="CatalogBuild_MissingLicense" xml:space="preserve"><value>공개 라이선스가 없습니다(라이선스 {detail}, LICENSE.txt나 LICENSE.md 필요).</value></data>
+  <data name="CatalogBuild_InvalidReview" xml:space="preserve"><value>review.json이 없거나 값이 틀렸습니다: {detail}</value></data>
+  <data name="CatalogBuild_OfficialMismatch" xml:space="preserve"><value>작성자 ID gpixel은 공식 패키지(검토 상태 official)에만 쓰고, 공식 패키지는 작성자 gpixel만 만듭니다(지금 {detail}). 다른 작성자 ID를 쓰세요.</value></data>
+  <data name="CatalogBuild_Duplicate" xml:space="preserve"><value>다른 제출({detail})과 이름이나 패키지 파일이 겹칩니다.</value></data>
+  <data name="CatalogBuild_PublishedChanged" xml:space="preserve"><value>이미 게시한 버전 {detail}의 내용이 바뀌었습니다. 버전을 올리세요.</value></data>
+  <data name="CatalogBuild_VersionDowngrade" xml:space="preserve"><value>게시한 버전({detail})보다 낮은 버전입니다.</value></data>
+  <data name="Asset_Issue_RecipeBindingMissingEffect" xml:space="preserve"><value>레시피 매개변수가 레시피에 없는 효과를 가리킵니다: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingUnknownKey" xml:space="preserve"><value>레시피 매개변수가 그 효과에 없는 설정을 가리킵니다: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingKindMismatch" xml:space="preserve"><value>레시피 매개변수와 연결된 설정의 값 종류가 다릅니다: {detail}</value></data>
+  <data name="Asset_Issue_RecipeBindingDuplicate" xml:space="preserve"><value>같은 효과 설정이 매개변수에 두 번 연결되어 있습니다: {detail}</value></data>
+  <data name="Asset_Issue_RecipeParameterOutOfRange" xml:space="preserve"><value>레시피 매개변수 값이 연결된 설정의 허용 범위를 벗어났습니다: {detail}</value></data>
+  <data name="Asset_Issue_InvalidScript" xml:space="preserve"><value>스크립트를 해석할 수 없습니다: {detail}</value></data>
+  <data name="Asset_Issue_ScriptHashMismatch" xml:space="preserve"><value>스크립트 원문이 적힌 해시와 다릅니다: {detail}</value></data>
+  <data name="Asset_Issue_MissingScript" xml:space="preserve"><value>스크립트 효과의 원문이 레시피에 없습니다: {detail}</value></data>
+  <data name="CatalogBuild_MissingPreview" xml:space="preserve"><value>목록 미리보기가 없습니다(미리보기가 있는 에셋이나 review.json의 preview가 필요합니다).</value></data>
+  <data name="Publish_NoAssets" xml:space="preserve"><value>포함할 에셋을 하나 이상 고르세요.</value></data>
+  <data name="Publish_AuthorId" xml:space="preserve"><value>작성자 ID는 소문자·숫자와 가운데 하이픈으로 1~64자여야 합니다(예: pixel-cat).</value></data>
+  <data name="Publish_AuthorName" xml:space="preserve"><value>작성자 표시 이름을 1~100자로 넣으세요.</value></data>
+  <data name="Publish_AuthorUrl" xml:space="preserve"><value>작성자 웹 주소는 https://로 시작하는 주소여야 합니다(비워 두어도 됩니다).</value></data>
+  <data name="Publish_PackageId" xml:space="preserve"><value>패키지 ID는 "작성자 ID.이름" 꼴이어야 합니다(점으로 나눈 소문자·숫자·하이픈 조각 둘 이상, 100자 이하).</value></data>
+  <data name="Publish_Version" xml:space="preserve"><value>버전은 SemVer "주.부.수" 꼴이어야 합니다(예: 1.2.0).</value></data>
+  <data name="Publish_Name" xml:space="preserve"><value>패키지 이름을 1~100자로 넣으세요.</value></data>
+  <data name="Publish_License" xml:space="preserve"><value>라이선스를 고르세요(SPDX ID나 LicenseRef-로 시작하는 ID).</value></data>
+  <data name="Publish_Summary" xml:space="preserve"><value>짧은 설명을 1~200자로 넣으세요(줄바꿈 없이).</value></data>
+  <data name="Publish_Tags" xml:space="preserve"><value>태그는 8개까지, 각각 소문자·숫자·하이픈으로 32자 이하여야 합니다.</value></data>
+  <data name="Publish_NoTags" xml:space="preserve"><value>태그가 없으면 둘러보기에서 찾기 어렵습니다.</value></data>
+  <data name="Publish_UnknownLicense" xml:space="preserve"><value>{detail}은(는) 흔한 SPDX ID가 아닙니다. 철자를 확인하고, 직접 만든 라이선스는 LicenseRef-로 시작하세요.</value></data>
+  <data name="Publish_SavedVersionChanged" xml:space="preserve"><value>이 컴퓨터에서 버전 {detail}을(를) 다른 내용으로 저장한 적이 있습니다. 이미 제출했다면 버전을 올리세요.</value></data>
+  <data name="AssetMigration_UnnamedRecipe" xml:space="preserve"><value>이름 없는 효과 {number}</value><comment>예전 사용자 정의 효과 이름이 제어 문자뿐이라 비었을 때 개인 에셋으로 옮기며 붙이는 이름. number = 목록 순번(1부터).</comment></data>
+  <data name="AssetMigration_UnnamedGradient" xml:space="preserve"><value>이름 없는 그라데이션 {number}</value><comment>예전 그라데이션 프리셋 이름이 비었을 때 붙이는 이름. number = 목록 순번(1부터).</comment></data>
 </root>

@@ -740,6 +740,9 @@ public sealed class PixelateDialog : DialogBase
         {
             Width = SettingsBarWidth - 6,
             Margin = new Thickness(0, 0, 6, 0),
+            Background = AppTheme.Brush(Color.FromRgb(212, 173, 76)),
+            BorderBrush = AppTheme.Brush(Color.FromRgb(162, 123, 43)),
+            Foreground = AppTheme.Brush(Color.FromRgb(42, 35, 24)),
             Padding = new Thickness(0),
             VerticalAlignment = VerticalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -2392,8 +2395,8 @@ public sealed class PixelateDialog : DialogBase
 
     /// <summary>
     /// 지금 설정(왼쪽)에서 체크한 최적화 프리셋을 목록 순서대로 배경에서 하나씩 돌린다(모두 같은 준비된 원본·시작 설정, 프리셋마다 자기 항목·예산·점수 기준).
-    /// 돌던 후보 만들기는 멈추고(결과가 섞이지 않게), 끝나면 프리셋마다 1위 하나를 후보로 넣고(칸 제목 = 프리셋 이름) 첫 후보의 설정을 왼쪽에 불러온다(다시 돌리지 않음).
-    /// 취소하면 남은 프리셋은 건너뛰고 그때까지 돈 프리셋(도는 중이던 프리셋은 그때까지 찾은 1위)을 같은 방법으로 보인다.
+    /// 돌던 후보 만들기는 멈추고(결과가 섞이지 않게), 프리셋 하나가 끝날 때마다 후보와 미리보기를 먼저 보인 뒤 다음 프리셋을 시작한다.
+    /// 취소하면 남은 프리셋은 건너뛰고 그때까지 돈 프리셋(도는 중이던 프리셋은 그때까지 찾은 1위)을 보인다.
     /// <paramref name="only"/>면(최적화 후보 칸 우클릭) 그 프리셋 하나만 지난 최적화와 같은 시작 설정에서 다시 돌려 그 칸만 바꾼다.
     /// </summary>
     private void StartOptimize(OptimizePreset? only = null)
@@ -2420,7 +2423,7 @@ public sealed class PixelateDialog : DialogBase
         _status.Text = UiStrings.Pixelate_Opt_Preparing;
         UpdateOptimizeButtons();
         var clock = Stopwatch.StartNew();
-        Task.Run(() =>
+        Task.Run(async () =>
         {
             var done = new List<OptimizeRun>();
             PixelateSource? src = null;
@@ -2437,22 +2440,23 @@ public sealed class PixelateDialog : DialogBase
                 {
                     var run = runs[k];
                     var running = (run.Name, k + 1, runs.Count);
-                    Dispatcher.UIThread.Post(() => { if (gen == _optGeneration) OnOptimizePresetStarted(running); });
+                    bool published = false;
+                    await Dispatcher.UIThread.InvokeAsync(() => { if (gen == _optGeneration) OnOptimizePresetStarted(running); });
                     var result = PixelateOptimizer.Run(src, settings, run.Options,
-                        p => Dispatcher.UIThread.Post(() => { if (gen == _optGeneration) OnOptimizeProgress(p); }), cts.Token);
-                    done.Add(new OptimizeRun(run.Preset, run.Name, run.Options.Params, result));
+                        p => Dispatcher.UIThread.Post(() => { if (gen == _optGeneration && !published) OnOptimizeProgress(p); }), cts.Token);
+                    var completed = new OptimizeRun(run.Preset, run.Name, run.Options.Params, result);
+                    done.Add(completed);
+                    // UI에 이번 후보를 넣고 미리보기를 고른 뒤에야 다음 프리셋을 돌린다.
+                    await Dispatcher.UIThread.InvokeAsync(() => { if (gen == _optGeneration) { published = true; OnOptimizeResult(src, completed, done.Count == 1, only is not null); } });
                 }
-                PixelateSource finished = src;
-                Dispatcher.UIThread.Post(() => { if (gen == _optGeneration) OnOptimizeFinished(finished, done, runs.Count, clock.Elapsed, only is not null); });
+                Dispatcher.UIThread.Post(() => { if (gen == _optGeneration) OnOptimizeFinished(done, runs.Count, clock.Elapsed, only is not null); });
             }
             catch (OperationCanceledException)
             {
-                var finished = src;
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (gen != _optGeneration) return;
-                    if (finished is not null) OnOptimizeFinished(finished, done, runs.Count, clock.Elapsed, only is not null);
-                    else EndOptimize(UiStrings.Pixelate_Opt_Stop_Cancelled);
+                    OnOptimizeFinished(done, runs.Count, clock.Elapsed, only is not null);
                 });
             }
             catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or IndexOutOfRangeException or AggregateException)
@@ -2463,7 +2467,7 @@ public sealed class PixelateDialog : DialogBase
         });
     }
 
-    /// <summary>돌던 최적화를 멈추고 결과는 버린다(설정을 바꿔 다시 돌릴 때·창을 닫을 때).</summary>
+    /// <summary>설정 변경·창 닫기에서 진행 중인 최적화를 중단한다. 설정 변경은 이어서 후보를 다시 만든다.</summary>
     private void StopOptimize()
     {
         if (_optCts is null) return;
@@ -2507,67 +2511,64 @@ public sealed class PixelateDialog : DialogBase
         _status.Text = text;
     }
 
-    /// <summary>
-    /// 끝난 프리셋마다 1위 하나를 프리셋 순서대로 후보로 넣고(칸 제목 = 프리셋 이름), 첫 후보의 설정을 왼쪽에 불러와 고른다. 결과 한 줄 = 돈 프리셋 수·걸린 시간
-    /// (풍선에 프리셋마다 결과), 시도 기록은 프리셋마다 기억한다(설정 창에서 고른 프리셋의 것을 보임).
-    /// <paramref name="rerun"/>(프리셋 하나만 다시 돌림)이면 다른 후보는 두고 그 프리셋의 칸만 같은 자리에서 바꾼다(칸이 없어졌으면 맨 뒤에 더함).
-    /// </summary>
-    private void OnOptimizeFinished(PixelateSource src, IReadOnlyList<OptimizeRun> runs, int count, TimeSpan elapsed, bool rerun = false)
+    /// <summary>한 프리셋의 1위를 즉시 후보에 넣어 보여 준다. 사용자가 다른 후보를 고른 동안에는 그 선택을 유지한다.</summary>
+    private void OnOptimizeResult(PixelateSource src, OptimizeRun run, bool first, bool rerun)
+    {
+        if (!ReferenceEquals(_prepared, src))
+        {
+            _prepared = src;
+            _sourceView.SetImage(_input!.Image, src.Cleaned);
+        }
+        if (first && !rerun)
+        {
+            _candidates.Clear();
+            _optimized.Clear();
+            _selected = null;
+            _userPicked = false;
+        }
+        var c = WithExcluded(run.Result.Best);
+        int at = rerun ? _candidates.FindIndex(x => _optimized.TryGetValue(x, out var o) && ReferenceEquals(o.Preset, run.Preset)) : -1;
+        bool replacingSelected = at >= 0 && ReferenceEquals(_selected, _candidates[at]);
+        if (at >= 0)
+        {
+            _optimized.Remove(_candidates[at]);
+            _candidates[at] = c;
+        }
+        else _candidates.Add(c);
+        _optimized[c] = new OptimizedTile(run.Preset, run.Name, run.Result.StoppedReason);
+        _optResults[run.Preset] = (run.Result, run.Params);
+        RebuildTiles();
+        if (!_userPicked || replacingSelected) Select(c);
+        var text = UiStrings.FormatPixelate_Opt_PresetLine(name: run.Name, summary: OptimizeDone(run.Result));
+        SetOptText(text);
+        _status.Text = c.Result.Failed ? text + " · " + FailureNote(c.Result) : text;
+        FillOptimizeHistory();
+    }
+
+    /// <summary>이미 화면에 넣은 후보는 그대로 두고, 돈 프리셋 수·걸린 시간과 프리셋별 결과를 표시한다.</summary>
+    private void OnOptimizeFinished(IReadOnlyList<OptimizeRun> runs, int count, TimeSpan elapsed, bool rerun)
     {
         if (runs.Count == 0)
         {
             EndOptimize(UiStrings.Pixelate_Opt_Stop_Cancelled);
             return;
         }
-        if (!ReferenceEquals(_prepared, src))
-        {
-            _prepared = src;
-            _sourceView.SetImage(_input!.Image, src.Cleaned);
-        }
-        if (!rerun)
-        {
-            _candidates.Clear();
-            _optimized.Clear();
-            _optResults.Clear();
-        }
-        var lines = new List<string>();
-        PixelateCandidate? first = null;
-        foreach (var run in runs)
-        {
-            var c = WithExcluded(run.Result.Best);
-            int at = rerun ? _candidates.FindIndex(x => _optimized.TryGetValue(x, out var o) && ReferenceEquals(o.Preset, run.Preset)) : -1;
-            if (at >= 0)
-            {
-                _optimized.Remove(_candidates[at]);
-                _candidates[at] = c;
-            }
-            else _candidates.Add(c);
-            first ??= c;
-            _optimized[c] = new OptimizedTile(run.Preset, run.Name, run.Result.StoppedReason);
-            _optResults[run.Preset] = (run.Result, run.Params);
-            lines.Add(UiStrings.FormatPixelate_Opt_PresetLine(name: run.Name, summary: OptimizeDone(run.Result)));
-        }
-        var best = first!;
-        _userPicked = false;
-        _runFit = best.Settings.Cleanup.OutlineFit;
-        // 첫 후보의 설정을 왼쪽에 불러온다 — 불러오는 중에는 다시 돌리지 않으므로 최적화 후보가 그대로 남는다.
-        LoadSettings(best.Settings);
+        // 최종 선택의 설정을 왼쪽에 불러온다. 그동안 결과를 미리 봐도 다음 프리셋은 시작할 때의 같은 설정에서 돈다.
+        var chosen = _selected!;
+        _runFit = chosen.Settings.Cleanup.OutlineFit;
+        LoadSettings(chosen.Settings);
         _presetSilent = true;
         _preset.SelectedIndex = -1;
         _presetSilent = false;
         _debounce.Stop();
-        RebuildTiles();
-        Select(best);
-
-        // 프리셋 하나만 다시 돌렸으면 그 프리셋의 결과 한 줄, 아니면 돈 프리셋 수·걸린 시간.
+        var lines = runs.Select(run => UiStrings.FormatPixelate_Opt_PresetLine(name: run.Name, summary: OptimizeDone(run.Result))).ToList();
         var summary = rerun ? lines[0] : UiStrings.FormatPixelate_Opt_PresetsDone(
             done: runs.Count,
             count: count,
             seconds: elapsed.TotalSeconds.ToString("0.0", CultureInfo.CurrentCulture));
         if (runs.Count < count || runs[^1].Result.StoppedReason == OptimizeStop.Cancelled) summary += " · " + UiStrings.Pixelate_Opt_Stop_Cancelled;
         EndOptimize(summary, string.Join("\n", lines));
-        _status.Text = best.Result.Failed ? summary + " · " + FailureNote(best.Result) : summary;
-        FillOptimizeHistory();
+        _status.Text = chosen.Result.Failed ? summary + " · " + FailureNote(chosen.Result) : summary;
     }
 
     /// <summary>프리셋 하나의 결과 한 줄: "돌림 k번 · a점 → b점 · 시도 n번 · t초 · 까닭".</summary>

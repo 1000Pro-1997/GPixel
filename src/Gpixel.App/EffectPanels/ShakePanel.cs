@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi ShakeUi => EffectUi.For<ShakeEffect>(ShakeDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_2C5AB3754D, UiStrings.S_LayerEffectsDialog_KindTable_043CDEE3B8,
+        Avalonia.Media.Color.FromRgb(186, 84, 60), (dialog, e, set) => dialog.ShakePanel(e, set),
+        shake => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_92D1EF3203,Axes[(int)shake.Axis],shake.Amount,shake.Count) + (shake.Decay ? UiStrings.S_LayerEffectsDialog_Summary_1D40117C02 : "") + (shake.Regular ? UiStrings.S_LayerEffectsDialog_Summary_4DA5BACD5A : ""));
+
     private static readonly string[] Axes = [UiStrings.S_ShakePanel_Axes_53CC4B039D, UiStrings.S_ShakePanel_Axes_8ACB726509, UiStrings.S_ShakePanel_Axes_0BA14E7C64];
 
     /// <summary>흔들기 설정: 방향, 세기, 횟수, 줄어듦, 움직임(무작위 시드 / 규칙적).</summary>

@@ -98,6 +98,10 @@ public sealed class PixelCanvas : Control
     private Point _offset;
     private readonly DispatcherTimer _antsTimer = new() { Interval = TimeSpan.FromMilliseconds(120) };
     private readonly DispatcherTimer _peekTimer = new() { Interval = TimeSpan.FromMilliseconds(40) };
+    /// <summary>합성 계산 중 로딩 아이콘을 돌리려고 다시 그리는 타이머(덮개가 보일 때만 돈다).</summary>
+    private readonly DispatcherTimer _busyTimer = new() { Interval = RenderOverlay.FrameInterval };
+    /// <summary>계산 중 덮개 위에 효과 없이 바로 보이는 그리는 중인 셀.</summary>
+    private WriteableBitmap? _strokeBmp;
     private int _antsPhase;
     private bool _pendingCenter;
     /// <summary>가운데 놓기 예약 번호: <see cref="RestoreView"/>가 올리면 미뤄 둔 가운데 놓기는 건너뛴다.</summary>
@@ -177,6 +181,8 @@ public sealed class PixelCanvas : Control
             _peekTimer.Stop();
             PeekPrevious = false;
         };
+        _busyTimer.Tick += (_, _) => InvalidateVisual();
+        ctx.RenderUpdated += (_, _) => InvalidateVisual();
 
         ctx.ProjectReplaced += (_, _) =>
         {
@@ -716,9 +722,14 @@ public sealed class PixelCanvas : Control
             return;
         }
         int frame = _ctx.CurrentFrame;
-        Bitmap? bmp = _ctx.DisplayBitmap;
+        var view = _ctx.DisplayView;
+        Bitmap? bmp = view.Bitmap;
         bool peek = _peekPrevious && frame > 0;
-        if (peek) bmp = _ctx.ViewBitmap(frame - 1);
+        if (peek)
+        {
+            bmp = _ctx.ViewBitmap(frame - 1);
+            view = RenderView.None;
+        }
         // 그룹 화면에서 부위를 끄는 중: 그 부위를 뺀 합성 위에 옮긴 자리로 그린다.
         var dragged = _drag == DragMode.Arrange && !peek ? _arrangePart : null;
         if (dragged is not null) bmp = _ctx.ContextBitmap(frame, dragged);
@@ -754,6 +765,8 @@ public sealed class PixelCanvas : Control
             }
             if (partView) DrawBitmapAt(g, bmp, 0, 0, W, H, checker: false);
             else DrawImageAt(g, bmp, 0, 0);
+            // 계산 중(작업 스레드)이면 회색 덮개 아래 중간 결과를 보이고, 그리는 중인 셀은 효과 없이 덮개 위에 바로 보인다.
+            if (view.Overlay && dragged is null) DrawPendingFrame(g);
             if (dragged is not null) DrawDraggedPart(g, dragged, frame);
             // 숨긴 일반 레이어도 그릴 수 있으므로, 현재 레이어가 숨김이면 그 셀을 반투명하게 위에 얹어 그리는 것이 보이게 한다(합성·내보내기는 그대로 숨김).
             if (!peek && !_tiledMode && _ctx.Project is { } hp && _ctx.CurrentPart is null && hp.Layers[_ctx.CurrentLayer] is { IsGroup: false } cur
@@ -786,12 +799,38 @@ public sealed class PixelCanvas : Control
         DrawCurvePreview(g);
         DrawBrushCursor(g);
         DrawDropHint(g);
+        if (view.Overlay) RenderOverlay.DrawBusy(g, ToRect(ImageScreenRect).Intersect(new Rect(Bounds.Size)), view.Progress);
+        if (view.Overlay != _busyTimer.IsEnabled)
+        {
+            if (view.Overlay) _busyTimer.Start();
+            else _busyTimer.Stop();
+        }
         if (_peekPrevious)
             AppTheme.DrawText(g, _ctx.CurrentFrame > 0 ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_PixelCanvas_Render_28FC63DF57,_ctx.CurrentFrame) : UiStrings.S_PixelCanvas_Render_5D74D360AD,
                 new Avalonia.Point(8, 8), AppTheme.WarningBrush, bold: true);
         // 캔버스 아래 안내는 그릴 수 없을 때(잠금) 경고만 — 사용법 설명은 도움말·상태 표시줄에.
         if (!_ctx.IsGroupSelected && !_ctx.IsTransforming && !_ctx.CanEdit)
             AppTheme.DrawText(g, UiStrings.S_PixelCanvas_Render_77C8A3EDEF, new Avalonia.Point(8, Bounds.Height - 24), AppTheme.WarningBrush);
+    }
+
+    /// <summary>
+    /// 지금 프레임 합성을 작업 스레드에서 계산하는 중: 보이는 그림(이전 결과·중간 그림) 위에 회색 덮개를 씌우고,
+    /// 스트로크 중이면 그리는 셀을 효과 없이(레이어 불투명도로) 덮개 위에 그려 바로 보이게 한다.
+    /// </summary>
+    private void DrawPendingFrame(DrawingContext g)
+    {
+        RenderOverlay.DrawVeil(g, ToRect(ImageScreenRect).Intersect(new Rect(Bounds.Size)));
+        if (_ctx.Project is not { IsStrokeActive: true } p || _ctx.CurrentPart is not null || _ctx.EditImage is not { } cel
+            || cel.Width != W || cel.Height != H)
+            return;
+        if (_strokeBmp is null || _strokeBmp.PixelSize.Width != W || _strokeBmp.PixelSize.Height != H)
+        {
+            _strokeBmp?.Dispose();
+            _strokeBmp = ImageUtil.NewBitmap(W, H);
+        }
+        ImageUtil.CopyToBitmap(cel, _strokeBmp);
+        using (g.PushOpacity(p.Layers[_ctx.CurrentLayer].Opacity / 255.0))
+            DrawBitmapAt(g, _strokeBmp, 0, 0, W, H, checker: false);
     }
 
     /// <summary>캔버스 크기의 그림을 (ox,oy) 이미지 좌표만큼 옮긴 위치에 체커 배경과 함께 보이는 부분만 그린다(그림이 없으면 체커만).</summary>

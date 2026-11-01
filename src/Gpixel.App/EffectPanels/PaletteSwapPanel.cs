@@ -1,4 +1,5 @@
 using Gpixel.Core.Edit;
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -6,6 +7,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi PaletteSwapUi => EffectUi.For<PaletteSwapEffect>(PaletteSwapDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_20C2A2DCF6, UiStrings.S_LayerEffectsDialog_KindTable_4E3A3D50CE,
+        Avalonia.Media.Color.FromRgb(150, 110, 230), (dialog, e, set) => dialog.PaletteSwapPanel(e, set),
+        p => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_53B3F1206A,p.Pairs.Count) + (p.Tolerance > 0 ? string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_E77A16477B,p.Tolerance) : ""));
+
     /// <summary>
     /// 색 바꾸기 설정: 쌍마다 [바꿀 색] → [바뀐 색] [−], 아래에 [+ 쌍 추가]·[그림에서 색 가져오기 ▾](이 프레임 그림에 쓰인 색, 많이 쓰인 순 — 누르면 그 색의 쌍 추가)와 허용 차이.
     /// 쌍을 더하거나 빼면 설정 칸을 다시 만든다.

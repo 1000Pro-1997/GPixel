@@ -1,0 +1,340 @@
+{
+  "version": 1,
+  "presets": [
+    {
+      "name": "all",
+      "effects": [
+        {
+          "type": "outline",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#141E28",
+          "thickness": 2,
+          "diagonal": true,
+          "inside": false,
+          "mode": "Shade"
+        },
+        {
+          "type": "shadow",
+          "enabled": false,
+          "clipToPrevious": false,
+          "color": "#0A141E",
+          "x": -2,
+          "y": 3,
+          "dither": "Half50"
+        },
+        {
+          "type": "rim",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#FFF0C8C8",
+          "shade": "#00002878",
+          "thickness": 2,
+          "direction": "BottomRight"
+        },
+        {
+          "type": "overlay",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#FFFFFF",
+          "colorGradients": {
+            "Color": {
+              "angle": 0,
+              "shape": "Linear",
+              "animated": false,
+              "reverse": false,
+              "cycles": 2,
+              "interpolation": "Smooth",
+              "dither": "Bayer2",
+              "colorSpace": "OkLch",
+              "stops": [
+                {
+                  "position": 0,
+                  "color": "#010203"
+                },
+                {
+                  "position": 1,
+                  "color": "#C86432DC"
+                }
+              ],
+              "alphaStops": [],
+              "straightRgba": false,
+              "easing": "EaseIn",
+              "pingPong": true
+            }
+          },
+          "amount": 60,
+          "blend": "Multiply"
+        },
+        {
+          "type": "innerglow",
+          "enabled": true,
+          "clipToPrevious": true,
+          "color": "#09C807",
+          "thickness": 3,
+          "amount": 70,
+          "fade": false,
+          "blend": "Screen"
+        },
+        {
+          "type": "swap",
+          "enabled": true,
+          "clipToPrevious": false,
+          "pairs": [
+            [
+              "#FF0000",
+              "#0000FF"
+            ],
+            [
+              "#00FF00",
+              "#00000000"
+            ]
+          ],
+          "tolerance": 12
+        },
+        {
+          "type": "adjust",
+          "enabled": true,
+          "clipToPrevious": false,
+          "amount": 40,
+          "mode": "BrightnessContrast",
+          "hue": -90,
+          "brightness": 20,
+          "contrast": -30,
+          "saturation": 70
+        },
+        {
+          "type": "reflection",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#0064C85A",
+          "direction": "Down",
+          "gap": 1,
+          "height": 80,
+          "opacityStart": 90,
+          "opacityEnd": 10,
+          "ditherFade": true,
+          "wave": 1
+        },
+        {
+          "type": "explode",
+          "enabled": true,
+          "clipToPrevious": false,
+          "x": 3,
+          "y": -2,
+          "easing": "EaseInOut",
+          "repeat": "PingPong",
+          "repeatCount": 3,
+          "distanceX": 6,
+          "distanceY": 4,
+          "center": "Custom",
+          "spreadX": 77,
+          "spreadY": 12,
+          "gravity": -2,
+          "pieceSize": 2,
+          "fade": true,
+          "fadeStart": 10,
+          "shrink": true,
+          "seed": 1234,
+          "keepOriginal": true,
+          "flashFrames": 2,
+          "flashColor": "#010203"
+        },
+        {
+          "type": "shine",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#FFF000",
+          "amount": 55,
+          "easing": "Linear",
+          "repeat": "Loop",
+          "repeatCount": 2,
+          "angle": 300,
+          "width": 3,
+          "softness": 2
+        },
+        {
+          "type": "squash",
+          "enabled": true,
+          "clipToPrevious": false,
+          "widthAmount": 35,
+          "heightAmount": 15,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "anchor": "Middle",
+          "stretchFirst": true,
+          "bounces": 2
+        },
+        {
+          "type": "hitflash",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#FF2828",
+          "amount": 70,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "mode": "Fade",
+          "count": 3
+        },
+        {
+          "type": "blink",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "mode": "Frames",
+          "count": 4,
+          "style": "Translucent",
+          "opacity": 25,
+          "onFrames": 2,
+          "offFrames": 1
+        },
+        {
+          "type": "shake",
+          "enabled": true,
+          "clipToPrevious": false,
+          "amount": 3,
+          "easing": "EaseIn",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "seed": 77,
+          "count": 7,
+          "axis": "Both",
+          "decay": false,
+          "regular": true
+        },
+        {
+          "type": "bob",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "EaseIn",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "height": 3,
+          "count": 1,
+          "axis": "Horizontal"
+        },
+        {
+          "type": "appear",
+          "enabled": true,
+          "clipToPrevious": false,
+          "direction": "Right",
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "seed": 12,
+          "style": "Wipe",
+          "disappear": true,
+          "edge": 2
+        },
+        {
+          "type": "fade",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "EaseInOut",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "disappear": true
+        },
+        {
+          "type": "melt",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "distance": 6,
+          "spread": 30,
+          "fade": false,
+          "seed": 99,
+          "stretch": false
+        },
+        {
+          "type": "rotate",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "angle": -270,
+          "anchor": "Middle"
+        },
+        {
+          "type": "afterimage",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#0A141E80",
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "count": 2,
+          "interval": 1,
+          "opacity": 80,
+          "tint": true
+        },
+        {
+          "type": "colorcycle",
+          "enabled": true,
+          "clipToPrevious": false,
+          "easing": "Linear",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "colors": [
+            "#FF0000",
+            "#0000FF",
+            "#00FF00",
+            "#FFFFFF"
+          ],
+          "steps": 3,
+          "reverse": true
+        },
+        {
+          "type": "shockwave",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#0000FF",
+          "thickness": 2,
+          "x": -1,
+          "y": 5,
+          "easing": "EaseOut",
+          "repeat": "Once",
+          "repeatCount": 1,
+          "distance": 8,
+          "center": "Custom",
+          "fade": false,
+          "behind": true
+        },
+        {
+          "type": "hologram",
+          "enabled": true,
+          "clipToPrevious": false,
+          "color": "#FF50C8",
+          "thickness": 5,
+          "amount": 60,
+          "easing": "EaseInOut",
+          "repeat": "Loop",
+          "repeatCount": 3,
+          "distance": 3,
+          "seed": 4321,
+          "gap": 3,
+          "ditherFade": true,
+          "style": "Fade",
+          "opacity": 55,
+          "scanStrength": 70,
+          "scroll": false,
+          "band": false,
+          "bandStrength": 30,
+          "flickerRate": 33,
+          "flickerStrength": 80,
+          "glitchRate": 45,
+          "rgbSplit": false,
+          "edgeGlow": true,
+          "edgeOpacity": 20
+        }
+      ]
+    }
+  ]
+}

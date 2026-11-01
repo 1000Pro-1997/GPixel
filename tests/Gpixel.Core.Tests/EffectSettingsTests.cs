@@ -8,48 +8,12 @@ namespace Gpixel.Core.Tests;
 public class EffectSettingsTests
 {
     [Fact]
-    public void ReflectionDirection_IsChoiceWithAllFourNames()
+    public void Merge_ChoiceNamesIgnoreCaseAndUnderscores()
     {
-        var direction = EffectSettings.Describe(new ReflectionEffect()).Single(s => s.Key == "direction");
-        Assert.Equal(EffectSettingKind.Choice, direction.Kind);
-        Assert.Equal("Down", direction.Default!.GetValue<string>());
-        Assert.Equal(["Down", "Up", "Left", "Right"], direction.Choices);
-        Assert.DoesNotContain(EffectSettings.Describe(new ReflectionEffect()), s => s.Key == "above");
-
         var (merged, _) = EffectSettings.Merge(new ReflectionEffect(), new JsonObject { ["direction"] = "right" });
         Assert.Equal(ReflectionDirection.Right, ((ReflectionEffect)merged).Direction);
-    }
-
-    private static IEnumerable<LayerEffect> AllDefaults()
-        => typeof(LayerEffect).Assembly.GetTypes()
-            .Where(t => !t.IsAbstract && t.IsSubclassOf(typeof(LayerEffect)))
-            .Select(t => (LayerEffect)Activator.CreateInstance(t)!);
-
-    [Fact]
-    public void EveryEffectType_RoundTripsThroughTypeIdDefaultsAndSettings()
-    {
-        foreach (var effect in AllDefaults())
-        {
-            var id = EffectSettings.TypeId(effect);
-            Assert.IsType(effect.GetType(), EffectSettings.Create(id));
-            var settings = EffectSettings.ToJson(effect);
-            foreach (var reserved in EffectSettings.ReservedKeys) Assert.False(settings.ContainsKey(reserved), $"{id}.{reserved}");
-            var keys = EffectSettings.Describe(effect).Select(s => s.Key).ToHashSet();
-            Assert.Contains(EffectSettings.GradientsKey, keys);
-            Assert.All(settings.Select(entry => entry.Key), key => Assert.Contains(key, keys));
-            // 기본값을 그대로 덮으면 같은 효과
-            var (merged, clamped) = EffectSettings.Merge(effect, settings);
-            Assert.Equal(effect, merged);
-            Assert.Empty(clamped);
-        }
-    }
-
-    [Fact]
-    public void Create_RejectsUnknownAndLegacyTypeIds()
-    {
-        Assert.Null(EffectSettings.Create("nope"));
-        Assert.Null(EffectSettings.Create("gradient")); // 예전 파일에서만 읽힘(색 덮기로 바뀜)
-        Assert.IsType<HitFlashEffect>(EffectSettings.Create(" HitFlash "));
+        var (shadow, _) = EffectSettings.Merge(new ShadowEffect(), new JsonObject { ["Dither"] = "half50" });
+        Assert.Equal(ShadowDither.Half50, ((ShadowEffect)shadow).Dither);
     }
 
     [Fact]
@@ -69,55 +33,23 @@ public class EffectSettingsTests
     }
 
     [Fact]
-    public void Merge_ReportsClampedNumbers_AndDescribeKnowsTheRange()
+    public void Merge_ReportsClampedNumbers()
     {
         var (merged, clamped) = EffectSettings.Merge(new OutlineEffect(), new JsonObject { ["thickness"] = 99 });
         Assert.Equal(OutlineEffect.MaxThickness, ((OutlineEffect)merged).Thickness);
         Assert.Equal([$"thickness = {OutlineEffect.MaxThickness}"], clamped);
-        var thickness = EffectSettings.Describe(new OutlineEffect()).Single(s => s.Key == "thickness");
-        Assert.Equal(EffectSettingKind.Number, thickness.Kind);
-        Assert.Equal((1, OutlineEffect.MaxThickness), (thickness.Min, thickness.Max));
-    }
 
-    [Fact]
-    public void Describe_FindsSettingsOmittedAtTheirDefault_AndChoiceNames()
-    {
-        var dither = EffectSettings.Describe(new ShadowEffect()).Single(s => s.Key == "dither");
-        Assert.Equal(EffectSettingKind.Choice, dither.Kind);
-        Assert.Equal("None", dither.Default!.GetValue<string>());
-        Assert.Equal(Enum.GetNames<ShadowDither>(), dither.Choices);
-
-        var (merged, _) = EffectSettings.Merge(new ShadowEffect(), new JsonObject { ["Dither"] = "half50" });
-        Assert.Equal(ShadowDither.Half50, ((ShadowEffect)merged).Dither);
-        var color = EffectSettings.Describe(new ShadowEffect()).Single(s => s.Key == "color");
-        Assert.Equal(EffectSettingKind.Color, color.Kind);
-    }
-
-    [Fact]
-    public void Describe_OutlineShowsShadeModeAndAmount_AndMergeSetsThem()
-    {
-        var info = EffectSettings.Describe(new OutlineEffect());
-        var mode = info.Single(s => s.Key == "mode");
-        Assert.Equal(EffectSettingKind.Choice, mode.Kind);
-        Assert.Equal("Fixed", mode.Default!.GetValue<string>());
-        Assert.Equal(Enum.GetNames<OutlineColorMode>(), mode.Choices);
-        var amount = info.Single(s => s.Key == "amount");
-        Assert.Equal(EffectSettingKind.Number, amount.Kind);
-        Assert.Equal(OutlineEffect.DefaultShadeAmount, amount.Default!.GetValue<int>());
-        Assert.Equal((-100, 100), (amount.Min, amount.Max));
-
-        var (merged, clamped) = EffectSettings.Merge(new OutlineEffect(), new JsonObject { ["mode"] = "shade", ["amount"] = 150 });
-        var outline = Assert.IsType<OutlineEffect>(merged);
-        Assert.Equal((OutlineColorMode.Shade, 100), (outline.ColorMode, outline.ShadeAmount));
-        Assert.Equal(["amount = 100"], clamped);
+        var (outline, shade) = EffectSettings.Merge(new OutlineEffect(), new JsonObject { ["colorMode"] = "shade", ["shadeAmount"] = 150 });
+        Assert.Equal((OutlineColorMode.Shade, 100), (((OutlineEffect)outline).ColorMode, ((OutlineEffect)outline).ShadeAmount));
+        Assert.Equal(["shadeAmount = 100"], shade);
     }
 
     [Fact]
     public void Merge_NullResetsAKeyToTheTypeDefault()
     {
-        var (moved, _) = EffectSettings.Merge(new ShadowEffect(), new JsonObject { ["x"] = 5 });
+        var (moved, _) = EffectSettings.Merge(new ShadowEffect(), new JsonObject { ["offsetX"] = 5 });
         Assert.Equal(5, ((ShadowEffect)moved).OffsetX);
-        var (reset, _) = EffectSettings.Merge(moved, new JsonObject { ["x"] = null });
+        var (reset, _) = EffectSettings.Merge(moved, new JsonObject { ["offset_x"] = null });
         Assert.Equal(new ShadowEffect().OffsetX, ((ShadowEffect)reset).OffsetX);
     }
 
@@ -127,7 +59,7 @@ public class EffectSettingsTests
     [InlineData("""{"clip_to_above": true}""", EffectSettingError.ReservedKey)]
     [InlineData("""{"count": "many"}""", EffectSettingError.WrongType)]
     [InlineData("""{"count": 1.5}""", EffectSettingError.WrongType)]
-    [InlineData("""{"mode": "sparkle"}""", EffectSettingError.NotAChoice)]
+    [InlineData("""{"shape": "sparkle"}""", EffectSettingError.NotAChoice)]
     [InlineData("""{"color": "red"}""", EffectSettingError.InvalidColor)]
     [InlineData("""{"colorGradients": 3}""", EffectSettingError.WrongType)]
     public void Merge_RejectsBadKeysAndValues(string json, EffectSettingError error)

@@ -14,6 +14,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Jint" Version="4.17.0" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="Microsoft.CodeAnalysis.ResxSourceGenerator" Version="5.0.0-1.25277.114" PrivateAssets="all" />
   </ItemGroup>
@@ -26,6 +27,10 @@
   <ItemGroup>
     <!-- AI 참고 자료: 기본 그림 규칙과 사용자 rules.md 틀(언어별). 이름의 .ko/.en을 언어로 보지 않게 WithCulture=false. -->
     <EmbeddedResource Include="References\Assets\*.md" LogicalName="Gpixel.References.%(Filename)%(Extension)" WithCulture="false" />
+    <!-- 효과 견본: 앱 아이콘의 픽셀 병아리 원본(32×32 RGBA)을 실행 파일에 포함한다. -->
+    <EmbeddedResource Include="Assets/preview-chick.png" LogicalName="Gpixel.Assets.preview-chick.png" WithCulture="false" />
+    <!-- 스크립트 효과 틀: 효과 창 "새 스크립트"의 처음 원문(빛 지나가기를 JS로 옮긴 것 — C# 결과와 픽셀 단위로 같음). -->
+    <EmbeddedResource Include="Scripting\Templates\*.js" LogicalName="Gpixel.Scripting.%(Filename)%(Extension)" WithCulture="false" />
   </ItemGroup>
 
 </Project>

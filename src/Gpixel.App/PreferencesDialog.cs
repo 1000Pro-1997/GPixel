@@ -263,9 +263,7 @@ public sealed class PreferencesDialog : DialogBase
             {
                 if (Ui.Ask(this, UiStrings.Presets_RestoreGradientsQuestion, UiStrings.Presets_RestoreGradients,
                         MessageButtons.YesNo, MessageIcon.Question) != DialogResult.Yes) return;
-                if (GradientPresetUi.Load(this) is not { } gradients) return;
-                GradientPresets.RestoreBuiltIns(gradients);
-                if (GradientPresetUi.Save(this, gradients)) presetsStatus.Text = UiStrings.Presets_Restored;
+                if (GradientPresetUi.RestoreBuiltIns(this)) presetsStatus.Text = UiStrings.Presets_Restored;
             }),
             presetsStatus);
 

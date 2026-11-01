@@ -1,3 +1,4 @@
+using Gpixel.Core.Effects;
 using Gpixel.Core.Model;
 using Gpixel.App.Localization;
 
@@ -5,6 +6,11 @@ namespace Gpixel.App;
 
 public sealed partial class LayerEffectsDialog
 {
+    /// <summary>효과 창·타임라인 표시: 이름, 설명, 타임라인 색, 설정 칸, 목록 요약.</summary>
+    private static EffectUi HitFlashUi => EffectUi.For<HitFlashEffect>(HitFlashDefinition.Id, UiStrings.S_LayerEffectsDialog_KindTable_1725C3F28A, UiStrings.S_LayerEffectsDialog_KindTable_993BDE3846,
+        Avalonia.Media.Color.FromRgb(250, 250, 250), (dialog, e, set) => dialog.HitFlashPanel(e, set),
+        hit => string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_LayerEffectsDialog_Summary_A9AB403D93,hit.Count,hit.Strength,hit.Color.ToHex()) + (hit.Shape == HitFlashShape.Fade ? UiStrings.S_LayerEffectsDialog_Summary_1BF53EA7E5 : ""));
+
     private static readonly Color32 HitRed = new(255, 40, 40);
 
     /// <summary>피격 번쩍임 설정: 색(흰색·빨강 단추), 세기, 횟수, 모양, 공통 움직임.</summary>

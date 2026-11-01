@@ -1597,8 +1597,9 @@ public sealed partial class ChatWindow : Window
             // 마지막 차례를 지운 대화: CLI 세션에서는 차례를 뺄 수 없으므로 새 세션으로 보내고, 남은 대화 정리를 앞에 붙인다.
             var modelText = ChatImageTokens.ToModel(text);
             var message = scope is null ? modelText : UiStrings.FormatChat_FileOnly_Prefix(name: scope.Project.DisplayName, text: modelText);
-            // 그리는 방식(모델에게만 — 화면·저장에는 남기지 않음). Claude 탭은 늘 직접 찍기(사용자가 Codex에 맡기라고 할 때만 생성 도구).
-            message = AiCli.DrawingModeLine(_w._settings.AiDraw.EffectiveMode(Provider.Id), Provider.Id == AiDrawSettings.GeneratingProvider) + "\n" + message;
+            // 그리는 방식은 선택한 AI 탭의 실제 방식으로 고정해 모델에게 전하고, 보내기 성공 뒤 대화에도 기록한다.
+            var drawMode = _w._settings.AiDraw.EffectiveMode(Provider.Id);
+            message = AiCli.DrawingModeLine(drawMode, Provider.Id == AiDrawSettings.GeneratingProvider) + "\n" + message;
             // "팔레트 색만 사용": 처음부터 팔레트 색으로 그리게 활성 팔레트 색을 알린다(도구도 다른 색은 가장 가까운 팔레트 색으로 바꿈).
             if (_w._settings.AiDraw.PaletteOnly && new PaletteLock(_w._mcp.Tools.Host.Palette) is { IsEmpty: false } palette)
                 message = AiCli.PaletteLine(palette) + "\n" + message;
@@ -1647,6 +1648,12 @@ public sealed partial class ChatWindow : Window
             };
             AddUserBubble(userItem, [.. attachments.Select(a => (Bitmap?)a.Thumb)], attachments);
             Record(userItem);
+            AddSystemLine(UiStrings.FormatChat_DrawMode_Notice(mode: drawMode switch
+            {
+                AiDrawMode.Generate => UiStrings.AiDraw_Mode_Generate,
+                AiDrawMode.DirectAutoCheck => UiStrings.AiDraw_Mode_AutoCheck,
+                _ => UiStrings.AiDraw_Mode_Direct,
+            }), error: false);
             if (scope is not null) AddSystemLine(UiStrings.FormatChat_FileOnly_Notice(name: scope.Project.DisplayName), error: false);
 
             var label = string.Format(global::System.Globalization.CultureInfo.CurrentCulture,UiStrings.S_ChatWindow_Send_9DB69B8394,Provider.Name,Shorten(plain.Length > 0 ? plain : UiStrings.S_ChatWindow_Send_A2D9AB8F67, 24));
